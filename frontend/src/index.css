@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-[#F4F5F7] text-[#172B4D] antialiased;
+}
+
+/* Jira-like scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-[#EBECF0];
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-[#C1C7D0] rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-[#A5ADBA];
+}
+
+/* Custom utility for Jira cards */
+.jira-card {
+  @apply bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm hover:shadow-md transition-shadow;
+}

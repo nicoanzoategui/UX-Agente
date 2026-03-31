@@ -29,7 +29,7 @@ export async function initDatabase() {
             `ALTER TABLE user_stories ADD COLUMN is_generating INTEGER NOT NULL DEFAULT 0`
         );
     } catch {
-        /* columna ya existe en bases creadas antes de este campo */
+        /* columna ya existe */
     }
 
     await db.execute(`
@@ -48,6 +48,14 @@ export async function initDatabase() {
     )
   `);
 
+    try {
+        await db.execute(
+            `ALTER TABLE design_outputs ADD COLUMN meta TEXT`
+        );
+    } catch {
+        /* columna ya existe */
+    }
+
     await db.execute(`
     CREATE TABLE IF NOT EXISTS sync_log (
       id TEXT PRIMARY KEY,
@@ -61,7 +69,6 @@ export async function initDatabase() {
     console.log('✓ Database initialized');
 }
 
-// Helper functions
 export async function queryOne<T>(sql: string, args: any[] = []): Promise<T | null> {
     const result = await db.execute({ sql, args });
     return (result.rows[0] as unknown as T) || null;

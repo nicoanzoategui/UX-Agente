@@ -14,10 +14,11 @@ export default function Review() {
     const [submitting, setSubmitting] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const [feedback, setFeedback] = useState('');
+    const [storyOpen, setStoryOpen] = useState(false);
 
     useEffect(() => {
         loadStory();
-        const interval = setInterval(loadStory, 5000); // Poll every 5s for updates
+        const interval = setInterval(loadStory, 5000);
         return () => clearInterval(interval);
     }, [storyId]);
 
@@ -115,8 +116,9 @@ export default function Review() {
             </button>
 
             <div className="flex flex-col lg:flex-row gap-8 lg:items-start lg:min-h-[calc(100vh-8rem)]">
-                {/* Columna historia de usuario (izquierda en desktop) */}
-                <aside className="w-full lg:w-[min(100%,380px)] lg:shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto space-y-4 pr-1">
+
+                {/* Columna historia de usuario — colapsable */}
+                <aside className="w-full lg:w-[min(100%,320px)] lg:shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto space-y-4 pr-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <a
                             href={`https://${import.meta.env.VITE_JIRA_HOST || 'jira.atlassian.com'}/browse/${story.jira_key}`}
@@ -134,16 +136,29 @@ export default function Review() {
                         </span>
                     </div>
                     <h1 className="text-xl lg:text-2xl font-semibold text-[#172B4D] leading-snug">{story.title}</h1>
-                    {story.description ? (
-                        <div className="bg-white border border-[#DFE1E6] p-4 rounded-[3px] text-sm text-[#42526E] leading-relaxed shadow-sm">
-                            <h4 className="text-[10px] uppercase font-bold text-[#7A869A] mb-2 tracking-widest">
-                                Historia / descripción
-                            </h4>
-                            <p className="whitespace-pre-wrap">{story.description}</p>
+
+                    {/* Descripción colapsable */}
+                    {story.description && (
+                        <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm overflow-hidden">
+                            <button
+                                onClick={() => setStoryOpen(o => !o)}
+                                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#F4F5F7] transition-colors"
+                            >
+                                <span className="text-[10px] uppercase font-bold text-[#7A869A] tracking-widest">
+                                    Historia / descripción
+                                </span>
+                                <span className={`text-[#7A869A] transition-transform duration-200 ${storyOpen ? 'rotate-180' : ''}`}>
+                                    ▾
+                                </span>
+                            </button>
+                            {storyOpen && (
+                                <div className="px-4 pb-4 text-sm text-[#42526E] leading-relaxed border-t border-[#DFE1E6]">
+                                    <pre className="whitespace-pre-wrap font-sans pt-3">{story.description}</pre>
+                                </div>
+                            )}
                         </div>
-                    ) : (
-                        <p className="text-xs text-[#7A869A] italic">Sin descripción en el ticket.</p>
                     )}
+
                     <div className="pt-2 border-t border-[#DFE1E6]">
                         <p className="text-[10px] uppercase font-bold text-[#7A869A] mb-3 tracking-widest">Etapas</p>
                         <ProgressSteps
@@ -156,137 +171,134 @@ export default function Review() {
                 {/* Columna diseño + acciones */}
                 <div className="flex-1 min-w-0 space-y-6">
                     {pendingOutput ? (
-                        <div className="flex flex-col xl:flex-row gap-6 xl:items-start">
-                            <div className="flex-1 min-w-0 space-y-4">
-                                <div className="flex items-center justify-between border-b-2 border-[#0052CC] pb-1">
-                                    <h2 className="font-semibold text-lg text-[#172B4D] flex items-center gap-2 flex-wrap">
-                                        {LEVEL_NAMES[pendingOutput.level]}
-                                        <span className="text-[#5E6C84] font-mono text-xs bg-[#EBECF0] px-2 py-0.5 rounded-[3px]">
-                                            v{pendingOutput.version}
-                                        </span>
-                                    </h2>
-                                </div>
-                                <div className="bg-white border border-[#DFE1E6] rounded-[3px] p-1 shadow-sm overflow-hidden">
-                                    <WireframePreview
-                                        content={pendingOutput.content}
-                                        type={pendingOutput.content_type}
-                                    />
-                                </div>
+                        <div className="space-y-6">
+
+                            {/* Header del nivel */}
+                            <div className="flex items-center justify-between border-b-2 border-[#0052CC] pb-2">
+                                <h2 className="font-semibold text-lg text-[#172B4D] flex items-center gap-2 flex-wrap">
+                                    {LEVEL_NAMES[pendingOutput.level]}
+                                    <span className="text-[#5E6C84] font-mono text-xs bg-[#EBECF0] px-2 py-0.5 rounded-[3px]">
+                                        v{pendingOutput.version}
+                                    </span>
+                                </h2>
+                                {pendingOutput.level < 3 && (
+                                    <span className="text-[11px] text-[#5E6C84] italic">
+                                        Si aprobás, se genera {LEVEL_NAMES[pendingOutput.level + 1]}
+                                    </span>
+                                )}
                             </div>
 
-                            <div className="w-full xl:w-72 shrink-0 xl:sticky xl:top-4 xl:self-start">
-                                <div className="bg-white border border-[#DFE1E6] p-5 rounded-[3px] shadow-sm">
-                                    <h2 className="text-xs font-bold text-[#7A869A] uppercase tracking-widest mb-5">
-                                        Revisión
-                                    </h2>
+                            {/* Preview del diseño */}
+                            <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm overflow-hidden">
+                                <WireframePreview
+                                    content={pendingOutput.content}
+                                    type={pendingOutput.content_type}
+                                />
+                            </div>
 
-                                    <button
-                                        onClick={handleApprove}
-                                        disabled={submitting}
-                                        className="w-full py-2.5 bg-[#36B37E] hover:bg-[#32a473] disabled:bg-[#EBECF0] disabled:text-[#A5ADBA] rounded-[3px] font-bold transition-all flex items-center justify-center gap-2 text-white text-sm"
-                                    >
-                                        {submitting ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                Aprobando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                </svg>
-                                                Aprobar este nivel
-                                            </>
-                                        )}
-                                    </button>
-
-                                    {pendingOutput.level < 3 && !submitting && (
-                                        <p className="text-[11px] text-center text-[#5E6C84] mt-3 leading-tight italic">
-                                            Luego se genera {LEVEL_NAMES[pendingOutput.level + 1]}
-                                        </p>
+                            {/* CTA de aprobación — debajo del preview */}
+                            <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm p-5 space-y-5">
+                                <button
+                                    onClick={handleApprove}
+                                    disabled={submitting}
+                                    className="w-full py-3 bg-[#36B37E] hover:bg-[#32a473] disabled:bg-[#EBECF0] disabled:text-[#A5ADBA] rounded-[3px] font-bold transition-all flex items-center justify-center gap-2 text-white text-sm"
+                                >
+                                    {submitting ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            Aprobando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Aprobar y continuar
+                                        </>
                                     )}
+                                </button>
 
-                                    <div className="mt-6 border-t border-[#EBECF0] pt-5">
-                                        <label className="block text-xs font-bold text-[#7A869A] uppercase tracking-widest mb-2">
-                                            Pedir cambios (v{pendingOutput.version + 1})
-                                        </label>
-                                        <textarea
-                                            value={feedback}
-                                            onChange={(e) => setFeedback(e.target.value)}
-                                            placeholder="Feedback para el agente…"
-                                            className="w-full h-28 px-3 py-2 bg-[#F4F5F7] border border-[#DFE1E6] rounded-[3px] text-sm resize-none focus:bg-white focus:border-[#4C9AFF] outline-none transition-all placeholder-[#A5ADBA] text-[#172B4D]"
-                                            disabled={submitting}
-                                        />
-                                        <button
-                                            onClick={handleReject}
-                                            disabled={submitting || !feedback.trim()}
-                                            className="mt-2 w-full py-2 bg-white hover:bg-[#F4F5F7] text-[#42526E] disabled:opacity-50 disabled:cursor-not-allowed rounded-[3px] text-sm font-bold transition-colors border border-[#DFE1E6]"
-                                        >
-                                            Enviar feedback e iterar
-                                        </button>
-                                    </div>
+                                <div className="border-t border-[#EBECF0] pt-5 space-y-2">
+                                    <label className="block text-xs font-bold text-[#7A869A] uppercase tracking-widest">
+                                        Pedir cambios — v{pendingOutput.version + 1}
+                                    </label>
+                                    <textarea
+                                        value={feedback}
+                                        onChange={(e) => setFeedback(e.target.value)}
+                                        placeholder="Describí qué querés cambiar…"
+                                        className="w-full h-24 px-3 py-2 bg-[#F4F5F7] border border-[#DFE1E6] rounded-[3px] text-sm resize-none focus:bg-white focus:border-[#4C9AFF] outline-none transition-all placeholder-[#A5ADBA] text-[#172B4D]"
+                                        disabled={submitting}
+                                    />
+                                    <button
+                                        onClick={handleReject}
+                                        disabled={submitting || !feedback.trim()}
+                                        className="w-full py-2 bg-white hover:bg-[#F4F5F7] text-[#42526E] disabled:opacity-50 disabled:cursor-not-allowed rounded-[3px] text-sm font-bold transition-colors border border-[#DFE1E6]"
+                                    >
+                                        Enviar feedback e iterar
+                                    </button>
                                 </div>
                             </div>
                         </div>
+
                     ) : story.status === 'completed' ? (
-                <div className="text-center py-16 bg-white border border-[#36B37E] border-dashed rounded-[3px]">
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[#E3FCEF] flex items-center justify-center">
-                        <svg className="w-10 h-10 text-[#36B37E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                    </div>
-                    <h3 className="text-2xl font-bold text-[#172B4D]">Flujo de Diseño Finalizado</h3>
-                    <p className="text-[#5E6C84] mt-2 max-w-sm mx-auto leading-relaxed">
-                        Todas las etapas fueron aprobadas. Los assets finales y el código están disponibles en Jira.
-                    </p>
-                </div>
-            ) : (
-                <div className="text-center py-20 max-w-lg mx-auto space-y-6 bg-white border border-[#DFE1E6] rounded-[3px] border-dashed">
-                    {(!story.outputs || story.outputs.length === 0) && isGenerating ? (
-                        <>
-                            <div className="relative w-12 h-12 mx-auto mb-6">
-                                <div className="absolute inset-0 border-4 border-[#EBECF0] rounded-full" />
-                                <div className="absolute inset-0 border-4 border-[#0052CC] border-t-transparent rounded-full animate-spin" />
+                        <div className="text-center py-16 bg-white border border-[#36B37E] border-dashed rounded-[3px]">
+                            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[#E3FCEF] flex items-center justify-center">
+                                <svg className="w-10 h-10 text-[#36B37E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
                             </div>
-                            <p className="text-[#172B4D] font-medium text-lg">Gemini está creando el diseño…</p>
-                            <p className="text-[#5E6C84] text-xs">
-                                Este proceso puede tardar unos 2 minutos. La página se actualizará automáticamente.
+                            <h3 className="text-2xl font-bold text-[#172B4D]">Flujo de Diseño Finalizado</h3>
+                            <p className="text-[#5E6C84] mt-2 max-w-sm mx-auto leading-relaxed">
+                                Todas las etapas fueron aprobadas. Los assets finales y el código están disponibles en Jira.
                             </p>
-                        </>
-                    ) : (!story.outputs || story.outputs.length === 0) ? (
-                        <>
-                            <p className="text-[#BF2600] font-medium">
-                                No se ha podido generar el diseño inicial.
-                            </p>
-                            <p className="text-[#5E6C84] text-xs px-10">
-                                Revisa los logs del backend para identificar si hay errores de cuota en Gemini o problemas de red.
-                            </p>
-                            <button
-                                type="button"
-                                onClick={handleRetryFirstDesign}
-                                disabled={retrying}
-                                className="px-6 py-2 bg-[#0052CC] hover:bg-[#0747A6] disabled:bg-[#EBECF0] rounded-[3px] font-medium text-white transition-colors text-sm"
-                            >
-                                {retrying ? 'Generando…' : 'Reintentar nivel 1'}
-                            </button>
-                        </>
+                        </div>
+
                     ) : (
-                        <>
-                            <div className="relative w-12 h-12 mx-auto mb-6">
-                                <div className="absolute inset-0 border-4 border-[#EBECF0] rounded-full"></div>
-                                <div className="absolute inset-0 border-4 border-[#0052CC] border-t-transparent rounded-full animate-spin"></div>
-                            </div>
-                            <p className="text-[#42526E] animate-pulse font-medium">
-                                {isGenerating
-                                    ? 'Generando el siguiente nivel en segundo plano…'
-                                    : 'Esperando el nuevo diseño…'}
-                            </p>
-                        </>
+                        <div className="text-center py-20 max-w-lg mx-auto space-y-6 bg-white border border-[#DFE1E6] rounded-[3px] border-dashed">
+                            {(!story.outputs || story.outputs.length === 0) && isGenerating ? (
+                                <>
+                                    <div className="relative w-12 h-12 mx-auto mb-6">
+                                        <div className="absolute inset-0 border-4 border-[#EBECF0] rounded-full" />
+                                        <div className="absolute inset-0 border-4 border-[#0052CC] border-t-transparent rounded-full animate-spin" />
+                                    </div>
+                                    <p className="text-[#172B4D] font-medium text-lg">Gemini está creando el diseño…</p>
+                                    <p className="text-[#5E6C84] text-xs">
+                                        Este proceso puede tardar unos 2 minutos. La página se actualizará automáticamente.
+                                    </p>
+                                </>
+                            ) : (!story.outputs || story.outputs.length === 0) ? (
+                                <>
+                                    <p className="text-[#BF2600] font-medium">
+                                        No se ha podido generar el diseño inicial.
+                                    </p>
+                                    <p className="text-[#5E6C84] text-xs px-10">
+                                        Revisa los logs del backend para identificar si hay errores de cuota en Gemini o problemas de red.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={handleRetryFirstDesign}
+                                        disabled={retrying}
+                                        className="px-6 py-2 bg-[#0052CC] hover:bg-[#0747A6] disabled:bg-[#EBECF0] rounded-[3px] font-medium text-white transition-colors text-sm"
+                                    >
+                                        {retrying ? 'Generando…' : 'Reintentar nivel 1'}
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="relative w-12 h-12 mx-auto mb-6">
+                                        <div className="absolute inset-0 border-4 border-[#EBECF0] rounded-full"></div>
+                                        <div className="absolute inset-0 border-4 border-[#0052CC] border-t-transparent rounded-full animate-spin"></div>
+                                    </div>
+                                    <p className="text-[#42526E] animate-pulse font-medium">
+                                        {isGenerating
+                                            ? 'Generando el siguiente nivel en segundo plano…'
+                                            : 'Esperando el nuevo diseño…'}
+                                    </p>
+                                </>
+                            )}
+                        </div>
                     )}
                 </div>
-            )}
-
-            </div>
             </div>
 
             {story.outputs?.filter((o: any) => o.status !== 'pending').length > 0 && (

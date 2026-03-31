@@ -1,8 +1,6 @@
-// backend/src/services/agent.service.ts
-
 import { v4 as uuid } from 'uuid';
 import { queryOne, run } from '../db/database.js';
-import { generateDesign } from './llm.service.js';
+import { generateDesign, type DesignMeta } from './llm.service.js';
 import {
     addComment,
     prepareBoardForNextDesignPhase,
@@ -31,7 +29,6 @@ const LEVEL_MIME: Record<number, string> = {
     3: 'text/plain'
 };
 
-/** Convierte ADF (Jira Cloud) a texto plano; cubre párrafos, listas, headings anidados. */
 function adfNodeToText(node: any): string {
     if (node == null) return '';
     if (typeof node === 'string') return node;
@@ -39,12 +36,8 @@ function adfNodeToText(node: any): string {
     if (typeof node === 'object' && 'text' in node && typeof node.text === 'string') {
         return node.text;
     }
-    if (Array.isArray(node)) {
-        return node.map(adfNodeToText).join('');
-    }
-    if (typeof node === 'object' && Array.isArray(node.content)) {
-        return adfNodeToText(node.content);
-    }
+    if (Array.isArray(node)) return node.map(adfNodeToText).join('');
+    if (typeof node === 'object' && Array.isArray(node.content)) return adfNodeToText(node.content);
     return '';
 }
 
@@ -67,9 +60,6 @@ function extractJiraDescription(fields: any): string {
     return '';
 }
 
-/**
- * Marca la story como "generando" en la API para que el front muestre spinner (Gemini tarda).
- */
 export async function runWithGeneratingFlag(storyId: string, fn: () => Promise<void>): Promise<void> {
     await run(
         `UPDATE user_stories SET is_generating = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -85,7 +75,6 @@ export async function runWithGeneratingFlag(storyId: string, fn: () => Promise<v
     }
 }
 
-// Procesar nueva user story
 export async function processNewStory(jiraIssue: any): Promise<void> {
     const storyId = uuid();
 
@@ -96,15 +85,15 @@ export async function processNewStory(jiraIssue: any): Promise<void> {
     try {
         await run(
             `INSERT INTO user_stories (id, jira_key, jira_id, title, description, status, current_level, is_generating)
-     VALUES (?, ?, ?, ?, ?, 'in_progress', 0, 1)`,
+             VALUES (?, ?, ?, ?, ?, 'in_progress', 0, 1)`,
             [storyId, jiraIssue.key, jiraIssue.id, jiraIssue.fields.summary, description]
         );
 
         await addComment(
             jiraIssue.key,
             `🤖 *Design Agent iniciado*\n\nComenzando a generar diseños para esta user story.\n\n` +
-                `Niveles: Wireframe → Wireframe Alta → UI High-Fi\n\n` +
-                `Los diseños se adjuntarán a este ticket para revisión.`
+            `Niveles: Wireframe → Wireframe Alta → UI High-Fi\n\n` +
+            `Los diseños se adjuntarán a este ticket para revisión.`
         );
 
         await transitionAgentPickUpIssue(jiraIssue.key);
@@ -118,8 +107,8 @@ export async function processNewStory(jiraIssue: any): Promise<void> {
                 await addComment(
                     jiraIssue.key,
                     `⚠️ *Error al generar el primer diseño (Gemini)*\n\n` +
-                        `${msg.slice(0, 3500)}\n\n` +
-                        `Revisá GEMINI_API_KEY, GEMINI_MODEL en el backend y los logs del servidor.`
+                    `${msg.slice(0, 3500)}\n\n` +
+                    `Revisá GEMINI_API_KEY, GEMINI_MODEL en el backend y los logs del servidor.`
                 );
             } catch (commentErr) {
                 console.error('Could not post error comment to Jira:', commentErr);
@@ -133,54 +122,48 @@ export async function processNewStory(jiraIssue: any): Promise<void> {
     }
 }
 
-// Generar diseño y subir a Jira
 export async function generateAndUpload(
     storyId: string,
     level: 1 | 2 | 3,
     feedback?: string
 ): Promise<void> {
-    const story = await queryOne<any>(
-        'SELECT * FROM user_stories WHERE id = ?',
-        [storyId]
-    );
+    const story = await queryOne<any>('SELECT * FROM user_stories WHERE id = ?', [storyId]);
     if (!story) throw new Error('Story not found');
 
     await transitionAgentPickUpIssue(story.jira_key);
 
     console.log(`→ Generating ${LEVEL_NAMES[level]} for ${story.jira_key}...`);
 
-    // Obtener diseño anterior si estamos iterando
     const previousOutput = await queryOne<any>(
         `SELECT content FROM design_outputs 
-     WHERE story_id = ? AND level = ? 
-     ORDER BY version DESC LIMIT 1`,
+         WHERE story_id = ? AND level = ? 
+         ORDER BY version DESC LIMIT 1`,
         [storyId, level]
     );
 
-    // Obtener versión actual
     const versionResult = await queryOne<any>(
         'SELECT MAX(version) as v FROM design_outputs WHERE story_id = ? AND level = ?',
         [storyId, level]
     );
     const version = (versionResult?.v || 0) + 1;
 
-    // Generar diseño con LLM
-    const content = await generateDesign(
+    // Generar diseño — ahora devuelve { content, meta }
+    const { content, meta } = await generateDesign(
         `${story.title}\n\n${story.description}`,
         level,
         feedback,
         previousOutput?.content
     );
 
-    // Guardar en DB
     const outputId = uuid();
     const contentType = level === 3 ? 'code' : 'svg';
     const filename = `${LEVEL_NAMES[level].toLowerCase().replace(/ /g, '-')}-v${version}.${LEVEL_EXTENSIONS[level]}`;
 
+    // Guardar en DB — incluye meta como JSON si existe
     await run(
-        `INSERT INTO design_outputs (id, story_id, level, content, content_type, version, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-        [outputId, storyId, level, content, contentType, version]
+        `INSERT INTO design_outputs (id, story_id, level, content, content_type, version, status, meta)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        [outputId, storyId, level, content, contentType, version, meta ? JSON.stringify(meta) : null]
     );
 
     // Subir a Jira
@@ -191,16 +174,11 @@ export async function generateAndUpload(
             content,
             LEVEL_MIME[level]
         );
-
-        await run(
-            'UPDATE design_outputs SET jira_attachment_id = ? WHERE id = ?',
-            [attachmentId, outputId]
-        );
+        await run('UPDATE design_outputs SET jira_attachment_id = ? WHERE id = ?', [attachmentId, outputId]);
     } catch (err) {
         console.error(`Error uploading attachment for ${story.jira_key}:`, err);
     }
 
-    // Comentar pidiendo aprobación
     await addComment(
         story.jira_key,
         `🎨 *${LEVEL_NAMES[level]}* (v${version}) generado — fase ${level}/3\n\n` +
@@ -213,7 +191,6 @@ export async function generateAndUpload(
         await transitionIssueToTargetStatus(story.jira_key, config.JIRA_WORKFLOW_STATUS_TODO);
     }
 
-    // Actualizar nivel actual
     await run(
         'UPDATE user_stories SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         [level, storyId]
@@ -222,24 +199,21 @@ export async function generateAndUpload(
     console.log(`✓ ${LEVEL_NAMES[level]} v${version} uploaded for ${story.jira_key}`);
 }
 
-// Aprobar diseño
 export async function handleApproval(storyId: string, outputId: string): Promise<void> {
     const story = await queryOne<any>('SELECT * FROM user_stories WHERE id = ?', [storyId]);
     const output = await queryOne<any>('SELECT * FROM design_outputs WHERE id = ?', [outputId]);
 
     if (!story || !output) throw new Error('Not found');
 
-    // Marcar como aprobado
     await run('UPDATE design_outputs SET status = ? WHERE id = ?', ['approved', outputId]);
 
     const nextLevel = (output.level + 1) as 1 | 2 | 3;
 
-    // ¿Siguiente nivel o terminamos?
     if (output.level < 3) {
         await addComment(
             story.jira_key,
-            `✅ *${LEVEL_NAMES[output.level]}* aprobado — fase ${output.level}/3 cerrada (Hecho en tablero).\n\n` +
-                `▶ Siguiente fase: *${LEVEL_NAMES[nextLevel]}* (${nextLevel}/3). Pasando por Kanban y generando…`
+            `✅ *${LEVEL_NAMES[output.level]}* aprobado — fase ${output.level}/3 cerrada.\n\n` +
+            `▶ Siguiente fase: *${LEVEL_NAMES[nextLevel]}* (${nextLevel}/3). Generando…`
         );
         await transitionIssueToTargetStatus(story.jira_key, config.JIRA_WORKFLOW_STATUS_DONE);
         await prepareBoardForNextDesignPhase(story.jira_key);
@@ -255,46 +229,66 @@ export async function handleApproval(storyId: string, outputId: string): Promise
             );
         }
     } else {
+        // Nivel 3 aprobado — comentario enriquecido con metadatos
+        const finalOutput = await queryOne<any>(
+            'SELECT meta FROM design_outputs WHERE id = ?',
+            [outputId]
+        );
+
+        let meta: DesignMeta | undefined;
+        try {
+            meta = finalOutput?.meta ? JSON.parse(finalOutput.meta) : undefined;
+        } catch {
+            console.warn('No se pudo parsear meta del output final');
+        }
+
+        const stateChecklist = meta?.states
+            ? Object.entries(meta.states)
+                .map(([k, v]) => `${v ? '✅' : '⬜'} ${k}`)
+                .join('\n')
+            : '✅ Ver código adjunto';
+
+        const componentsList = meta?.components?.length
+            ? meta.components.map((c: string) => `• ${c}`).join('\n')
+            : '• Ver código adjunto';
+
+        const decisionsList = meta?.decisions?.length
+            ? meta.decisions.map((d: string) => `• ${d}`).join('\n')
+            : '';
+
         await addComment(
             story.jira_key,
-            `✅ *${LEVEL_NAMES[output.level]}* aprobado — última fase (3/3). Marcando historia como completada en Jira.`
+            `✅ *UI High Fidelity aprobado — diseño completado* 🎉\n\n` +
+            `*Patrón de layout:* ${meta?.layout ?? 'Ver código adjunto'}\n\n` +
+            `*Componentes MUI utilizados:*\n${componentsList}\n\n` +
+            (decisionsList ? `*Decisiones de diseño:*\n${decisionsList}\n\n` : '') +
+            `*Estados implementados:*\n${stateChecklist}\n\n` +
+            `El componente TSX final está adjunto como archivo listo para desarrollo.\n\n` +
+            `_Wireframe → Wireframe Alta → UI High Fidelity: todos aprobados._`
         );
-        // Completado
+
         await run('UPDATE user_stories SET status = ? WHERE id = ?', ['completed', storyId]);
         await transitionIssueToTargetStatus(story.jira_key, config.JIRA_WORKFLOW_STATUS_DONE);
         await updateLabels(story.jira_key, ['design-done'], ['design-pending']);
-        await addComment(
-            story.jira_key,
-            `🎉 *Diseño completado*\n\n` +
-            `Los 3 niveles fueron aprobados:\n` +
-            `✓ Wireframe\n` +
-            `✓ Wireframe Alta\n` +
-            `✓ UI High Fidelity\n\n` +
-            `El código del componente está adjunto y listo para desarrollo.`
-        );
     }
 }
 
-// Rechazar con feedback
 export async function handleRejection(storyId: string, outputId: string, feedback: string): Promise<void> {
     const story = await queryOne<any>('SELECT * FROM user_stories WHERE id = ?', [storyId]);
     const output = await queryOne<any>('SELECT * FROM design_outputs WHERE id = ?', [outputId]);
 
     if (!story || !output) throw new Error('Not found');
 
-    // Marcar como rechazado
     await run(
         'UPDATE design_outputs SET status = ?, feedback = ? WHERE id = ?',
         ['rejected', feedback, outputId]
     );
 
-    // Comentar en Jira
     await addComment(
         story.jira_key,
         `🔄 *Feedback recibido para ${LEVEL_NAMES[output.level]}*\n\n"${feedback}"\n\nGenerando nueva versión...`
     );
 
-    // Generar nueva versión
     try {
         await runWithGeneratingFlag(storyId, () =>
             generateAndUpload(storyId, output.level as 1 | 2 | 3, feedback)

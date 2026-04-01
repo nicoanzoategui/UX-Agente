@@ -1,3 +1,4 @@
+import React from 'react';
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
@@ -15,6 +16,8 @@ export default function Review() {
     const [retrying, setRetrying] = useState(false);
     const [feedback, setFeedback] = useState('');
     const [storyOpen, setStoryOpen] = useState(false);
+    const [descriptionModalOpen, setDescriptionModalOpen] = useState(false);
+    const jiraHost = ((import.meta as any).env?.VITE_JIRA_HOST as string | undefined) || 'jira.atlassian.com';
 
     useEffect(() => {
         loadStory();
@@ -121,7 +124,7 @@ export default function Review() {
                 <aside className="w-full lg:w-[min(100%,320px)] lg:shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto space-y-4 pr-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <a
-                            href={`https://${import.meta.env.VITE_JIRA_HOST || 'jira.atlassian.com'}/browse/${story.jira_key}`}
+                            href={`https://${jiraHost}/browse/${story.jira_key}`}
                             target="_blank"
                             rel="noopener"
                             className="text-[#0052CC] font-semibold text-sm hover:underline"
@@ -154,6 +157,13 @@ export default function Review() {
                             {storyOpen && (
                                 <div className="px-4 pb-4 text-sm text-[#42526E] leading-relaxed border-t border-[#DFE1E6]">
                                     <pre className="whitespace-pre-wrap font-sans pt-3">{story.description}</pre>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDescriptionModalOpen(true)}
+                                        className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#0052CC] hover:underline"
+                                    >
+                                        Click para expandir en pantalla completa
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -335,6 +345,56 @@ export default function Review() {
                                     </div>
                                 </div>
                             ))}
+                    </div>
+                </div>
+            )}
+
+            {descriptionModalOpen && (
+                <div className="fixed inset-0 z-50 bg-[#091E42]/45 backdrop-blur-[1px] flex items-center justify-center p-6">
+                    <div className="w-full max-w-5xl bg-white rounded-md border border-[#DFE1E6] shadow-2xl overflow-hidden">
+                        <div className="h-16 px-6 border-b border-[#DFE1E6] flex items-center justify-between">
+                            <h3 className="text-[30px] font-semibold text-[#172B4D]">Editar Historia / Descripción</h3>
+                            <button
+                                onClick={() => setDescriptionModalOpen(false)}
+                                className="text-[#6B778C] hover:text-[#172B4D] text-2xl leading-none"
+                                aria-label="Cerrar modal"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="p-6 bg-[#FAFBFC] border-b border-[#DFE1E6]">
+                            <div className="h-11 px-4 bg-white border border-[#DFE1E6] rounded-t-[3px] flex items-center gap-3 text-[#5E6C84] text-sm">
+                                <span className="font-semibold">B</span>
+                                <span className="italic">I</span>
+                                <span className="underline">U</span>
+                                <span className="mx-1 text-[#C1C7D0]">|</span>
+                                <span>• Lista</span>
+                                <span>🔗</span>
+                                <span>🖼</span>
+                                <span>&lt;/&gt;</span>
+                            </div>
+                            <div className="border border-t-0 border-[#DFE1E6] rounded-b-[3px] bg-white min-h-[360px] p-6">
+                                <pre className="whitespace-pre-wrap font-serif text-[34px] leading-[1.55] text-[#172B4D]">
+                                    {story.description}
+                                </pre>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-4 bg-white flex items-center justify-end gap-3">
+                            <button
+                                onClick={() => setDescriptionModalOpen(false)}
+                                className="px-5 py-2 rounded-[3px] text-sm font-semibold text-[#42526E] hover:bg-[#F4F5F7]"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => setDescriptionModalOpen(false)}
+                                className="px-5 py-2 rounded-[3px] text-sm font-semibold bg-[#0052CC] text-white hover:bg-[#0747A6]"
+                            >
+                                Guardar cambios
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

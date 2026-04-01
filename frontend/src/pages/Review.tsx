@@ -393,19 +393,19 @@ export default function Review() {
 
             {descriptionModalOpen && (
                 <div className="fixed inset-0 z-50 bg-[#091E42]/45 backdrop-blur-[1px] flex items-center justify-center p-6">
-                    <div className="w-full max-w-5xl bg-white rounded-md border border-[#DFE1E6] shadow-2xl overflow-hidden">
-                        <div className="h-16 px-6 border-b border-[#DFE1E6] flex items-center justify-between">
+                    <div className="w-full max-w-5xl max-h-[90vh] bg-white rounded-md border border-[#DFE1E6] shadow-2xl overflow-hidden flex flex-col">
+                        <div className="h-16 px-6 border-b border-[#DFE1E6] flex items-center justify-between shrink-0 bg-white">
                             <h3 className="text-2xl font-semibold text-[#172B4D]">Historia / Descripción</h3>
                             <button
                                 onClick={() => setDescriptionModalOpen(false)}
-                                className="text-[#6B778C] hover:text-[#172B4D] text-2xl leading-none"
+                                className="text-[#6B778C] hover:text-[#172B4D] text-2xl leading-none px-2 py-1 rounded hover:bg-[#F4F5F7]"
                                 aria-label="Cerrar modal"
                             >
                                 ×
                             </button>
                         </div>
 
-                        <div className="p-6 bg-[#FAFBFC] border-b border-[#DFE1E6]">
+                        <div className="p-6 bg-[#FAFBFC] border-b border-[#DFE1E6] overflow-y-auto flex-1">
                             <div className="h-11 px-4 bg-white border border-[#DFE1E6] rounded-t-[3px] flex items-center gap-3 text-[#5E6C84] text-sm">
                                 <span className="font-semibold">B</span>
                                 <span className="italic">I</span>
@@ -434,7 +434,7 @@ export default function Review() {
                             </div>
                         </div>
 
-                        <div className="px-6 py-4 bg-white flex items-center justify-end gap-3">
+                        <div className="px-6 py-4 bg-white flex items-center justify-end gap-3 shrink-0 border-t border-[#DFE1E6]">
                             <button
                                 onClick={() => setDescriptionModalOpen(false)}
                                 className="px-5 py-2 rounded-[3px] text-sm font-semibold text-[#42526E] hover:bg-[#F4F5F7]"

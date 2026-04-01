@@ -1,7 +1,5 @@
 // backend/src/prompts/system-prompt.ts
 
-// backend/src/prompts/system-prompt.ts
-
 import { KNOWLEDGE_BASE } from './knowledge-base.js';
 
 export const SYSTEM_PROMPT = `
@@ -194,8 +192,12 @@ export function getPromptForLevel(
     previousDesign?: string
 ): string {
     const levelDescriptions = {
-        1: 'Wireframe Low-Fidelity: Generá un SVG con boxes grises, layout básico, jerarquía visual. Sin colores. Mobile-first 375px.',
-        2: 'Wireframe Mid-Fidelity: Generá un SVG con tipografía real, spacing exacto (8px grid de MUI), más detalle. Anotá qué componente MUI corresponde a cada sección. Manteniendo grises.',
+        1: `Wireframe Low-Fidelity: Generá DOS SVGs separados con boxes grises, layout básico, jerarquía visual. Sin colores.
+Separá los dos SVGs con este delimitador exacto en una línea sola: ---DESKTOP---
+Primero el SVG desktop con viewBox="0 0 1280 [altura]", luego el delimitador, luego el SVG mobile con viewBox="0 0 375 [altura]".`,
+        2: `Wireframe Mid-Fidelity: Generá DOS SVGs separados con tipografía real, spacing exacto (8px grid de MUI), más detalle. Anotá qué componente MUI corresponde a cada sección. Manteniendo grises.
+Separá los dos SVGs con este delimitador exacto en una línea sola: ---DESKTOP---
+Primero el SVG desktop con viewBox="0 0 1280 [altura]", luego el delimitador, luego el SVG mobile con viewBox="0 0 375 [altura]".`,
         3: 'UI High-Fidelity: Generá un componente React con Material UI v5. TypeScript, todos los estados, tokens del tema MUI. Sin Tailwind. Sin colores hardcodeados.'
     };
 
@@ -241,7 +243,29 @@ Incorporá este feedback en el nuevo diseño.
 
     prompt += `## Output
 
-Generá el diseño ahora. ${level < 3 ? 'Respondé SOLO con el SVG, sin explicaciones.' : 'Respondé SOLO con el código TSX, sin explicaciones.'}`;
+Generá el diseño ahora. ${level < 3
+    ? 'Respondé SOLO con el SVG, sin explicaciones.'
+    : `Respondé con DOS bloques en este orden exacto:
+
+1. El código TSX dentro de \`\`\`tsx ... \`\`\`
+2. Un bloque JSON dentro de \`\`\`json ... \`\`\` con esta estructura exacta:
+{
+  "layout": "nombre del patrón usado (ej: Formulario, Listado, Dashboard, Flujo de pasos)",
+  "components": ["lista", "de", "componentes", "MUI", "usados"],
+  "decisions": ["decisión 1 relevante", "decisión 2 relevante"],
+  "states": {
+    "default": true,
+    "loading": true,
+    "error": true,
+    "empty": true,
+    "disabled": false,
+    "responsive": true
+  }
+}
+
+Nada más. Sin texto explicativo fuera de los dos bloques.`
+}`;
+
 
     return prompt;
 }

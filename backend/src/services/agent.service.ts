@@ -140,6 +140,25 @@ export async function generateAndUpload(
          ORDER BY version DESC LIMIT 1`,
         [storyId, level]
     );
+    let previousDesign = previousOutput?.content;
+    if (!previousDesign && level > 1) {
+        const previousLevelApproved = await queryOne<any>(
+            `SELECT content FROM design_outputs
+             WHERE story_id = ? AND level = ? AND status = 'approved'
+             ORDER BY version DESC LIMIT 1`,
+            [storyId, level - 1]
+        );
+        previousDesign = previousLevelApproved?.content;
+    }
+    if (!previousDesign && level > 1) {
+        const previousLevelAny = await queryOne<any>(
+            `SELECT content FROM design_outputs
+             WHERE story_id = ? AND level = ?
+             ORDER BY version DESC LIMIT 1`,
+            [storyId, level - 1]
+        );
+        previousDesign = previousLevelAny?.content;
+    }
 
     const versionResult = await queryOne<any>(
         'SELECT MAX(version) as v FROM design_outputs WHERE story_id = ? AND level = ?',
@@ -152,7 +171,7 @@ export async function generateAndUpload(
         `${story.title}\n\n${story.description}`,
         level,
         feedback,
-        previousOutput?.content
+        previousDesign
     );
 
     const outputId = uuid();

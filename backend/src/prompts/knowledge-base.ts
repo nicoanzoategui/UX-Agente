@@ -346,6 +346,11 @@ Loading: "Guardando cambios..." no "Cargando..."
 - Filtros y búsqueda
 - Tables con acciones
 - Empty states útiles
+
+
+
+
+
 - Onboarding progresivo
 
 ### Healthcare

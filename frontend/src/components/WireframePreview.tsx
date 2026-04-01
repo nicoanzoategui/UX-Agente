@@ -1,3 +1,4 @@
+import React from 'react';
 import { lazy, Suspense, useState } from 'react';
 
 const HiFiSandpackPreview = lazy(() => import('./HiFiSandpackPreview'));
@@ -38,7 +39,6 @@ export default function WireframePreview({ content, type }: Props) {
                             borderBottom: previewTab === tab ? '2px solid #0052CC' : '2px solid transparent',
                             background: 'none',
                             border: 'none',
-                            borderBottom: previewTab === tab ? '2px solid #0052CC' : '2px solid transparent',
                             cursor: 'pointer',
                             transition: 'all 0.15s',
                         }}

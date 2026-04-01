@@ -1,6 +1,11 @@
+import React from 'react';
+
 interface Props {
     currentLevel: number;
     approvedLevels: number[];
+    availableLevels?: number[];
+    selectedLevel?: number | null;
+    onStepClick?: (level: number) => void;
 }
 
 const STEPS = [
@@ -9,7 +14,13 @@ const STEPS = [
     { level: 3, name: 'UI High-Fi', description: 'Código final MUI' },
 ];
 
-export default function ProgressSteps({ currentLevel, approvedLevels }: Props) {
+export default function ProgressSteps({
+    currentLevel,
+    approvedLevels,
+    availableLevels = [],
+    selectedLevel = null,
+    onStepClick,
+}: Props) {
     return (
         <div className="w-full">
             {STEPS.map((step, index) => {
@@ -17,9 +28,22 @@ export default function ProgressSteps({ currentLevel, approvedLevels }: Props) {
                 const isCurrent = currentLevel === step.level;
                 const isPending = !isApproved && !isCurrent;
                 const isLast = index === STEPS.length - 1;
+                const isClickable = !!onStepClick && (isApproved || availableLevels.includes(step.level));
+                const isSelected = selectedLevel === step.level;
 
                 return (
-                    <div key={step.level} className="flex gap-3">
+                    <button
+                        key={step.level}
+                        type="button"
+                        onClick={() => isClickable && onStepClick?.(step.level)}
+                        className={`w-full text-left flex gap-3 rounded-[3px] border px-3 py-2.5 mb-2 transition-colors ${
+                            isClickable ? 'hover:bg-[#F4F5F7] cursor-pointer' : 'cursor-default'
+                        } ${
+                            isSelected
+                                ? 'bg-[#EBF2FF] border-[#4C9AFF]'
+                                : 'bg-white border-[#DFE1E6]'
+                        }`}
+                    >
                         {/* Línea vertical + círculo */}
                         <div className="flex flex-col items-center">
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-all duration-300 ${
@@ -45,8 +69,8 @@ export default function ProgressSteps({ currentLevel, approvedLevels }: Props) {
                         </div>
 
                         {/* Contenido */}
-                        <div className="pb-5">
-                            <div className={`text-xs font-bold uppercase tracking-wider leading-7 ${
+                        <div className="pb-1">
+                            <div className={`text-xs font-bold uppercase tracking-wider leading-5 ${
                                 isApproved ? 'text-[#36B37E]'
                                 : isCurrent ? 'text-[#0052CC]'
                                 : 'text-[#7A869A]'
@@ -67,7 +91,7 @@ export default function ProgressSteps({ currentLevel, approvedLevels }: Props) {
                                 {step.description}
                             </div>
                         </div>
-                    </div>
+                    </button>
                 );
             })}
         </div>

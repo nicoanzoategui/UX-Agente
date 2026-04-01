@@ -7,6 +7,21 @@ import ProgressSteps from '../components/ProgressSteps';
 
 const LEVEL_NAMES = ['', 'Wireframe', 'Wireframe Alta', 'UI High-Fi'];
 
+function parseStoryDescription(text: string) {
+    const normalized = text
+        .replace(/Criterios de aceptación:?/gi, '\n\nCriterios de aceptación:\n')
+        .replace(/(Información a mostrar y editar:|Acciones disponibles:)/gi, '\n\n$1\n')
+        .replace(/(\))(?=[A-ZÁÉÍÓÚÑ])/g, '$1\n');
+    const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+    const first = lines[0] || '';
+    const bulletLines = lines.filter((l) => /^[-*•]/.test(l)).map((l) => l.replace(/^[-*•]\s*/, ''));
+    return {
+        first,
+        bulletLines,
+        plain: normalized,
+    };
+}
+
 export default function Review() {
     const { storyId } = useParams();
     const navigate = useNavigate();
@@ -15,8 +30,8 @@ export default function Review() {
     const [submitting, setSubmitting] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const [feedback, setFeedback] = useState('');
-    const [storyOpen, setStoryOpen] = useState(false);
     const [descriptionModalOpen, setDescriptionModalOpen] = useState(false);
+    const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
     const jiraHost = ((import.meta as any).env?.VITE_JIRA_HOST as string | undefined) || 'jira.atlassian.com';
 
     useEffect(() => {
@@ -42,9 +57,33 @@ export default function Review() {
 
     const pendingOutput = story?.outputs?.find((o: any) => o.status === 'pending');
     const approvedOutputs = story?.outputs?.filter((o: any) => o.status === 'approved') || [];
+    const availableLevels = Array.from(new Set((story?.outputs || []).map((o: any) => Number(o.level)))) as number[];
+    const activeOutput = selectedLevel != null
+        ? (story?.outputs || [])
+            .filter((o: any) => o.level === selectedLevel)
+            .sort((a: any, b: any) => b.version - a.version)[0]
+        : pendingOutput;
+    const shownOutput = activeOutput || pendingOutput;
+    const parsedDescription = parseStoryDescription(story.description || '');
     const isGenerating =
         story &&
         (Number((story as any).is_generating) === 1 || (story as any).is_generating === true);
+
+    useEffect(() => {
+        if (!story) return;
+        if (pendingOutput?.level) {
+            setSelectedLevel((prev) => (prev == null ? pendingOutput.level : prev));
+            return;
+        }
+        if (approvedOutputs.length > 0) {
+            const latestApprovedLevel = approvedOutputs
+                .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                ?.level;
+            if (latestApprovedLevel) {
+                setSelectedLevel((prev) => (prev == null ? latestApprovedLevel : prev));
+            }
+        }
+    }, [story?.id, pendingOutput?.id]);
 
     async function handleApprove() {
         if (!pendingOutput) return;
@@ -121,7 +160,7 @@ export default function Review() {
             <div className="flex flex-col lg:flex-row gap-8 lg:items-start lg:min-h-[calc(100vh-8rem)]">
 
                 {/* Columna historia de usuario — colapsable */}
-                <aside className="w-full lg:w-[min(100%,320px)] lg:shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto space-y-4 pr-1">
+                <aside className="w-full lg:w-[min(100%,300px)] lg:shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto space-y-4 pr-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <a
                             href={`https://${jiraHost}/browse/${story.jira_key}`}
@@ -143,57 +182,55 @@ export default function Review() {
                     {/* Descripción colapsable */}
                     {story.description && (
                         <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm overflow-hidden">
-                            <button
-                                onClick={() => setStoryOpen(o => !o)}
-                                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#F4F5F7] transition-colors"
-                            >
+                            <div className="w-full flex items-center justify-between px-4 py-3 border-b border-[#DFE1E6]">
                                 <span className="text-[10px] uppercase font-bold text-[#7A869A] tracking-widest">
                                     Historia / descripción
                                 </span>
-                                <span className={`text-[#7A869A] transition-transform duration-200 ${storyOpen ? 'rotate-180' : ''}`}>
-                                    ▾
-                                </span>
-                            </button>
-                            {storyOpen && (
-                                <div className="px-4 pb-4 text-sm text-[#42526E] leading-relaxed border-t border-[#DFE1E6]">
-                                    <pre className="whitespace-pre-wrap font-sans pt-3">{story.description}</pre>
-                                    <button
-                                        type="button"
-                                        onClick={() => setDescriptionModalOpen(true)}
-                                        className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#0052CC] hover:underline"
-                                    >
-                                        Click para expandir en pantalla completa
-                                    </button>
-                                </div>
-                            )}
+                                <button
+                                    type="button"
+                                    onClick={() => setDescriptionModalOpen(true)}
+                                    className="text-[10px] font-bold uppercase tracking-wider text-[#0052CC] hover:underline"
+                                >
+                                    Expandir
+                                </button>
+                            </div>
+                            <div className="px-4 py-3 text-sm text-[#42526E] leading-relaxed space-y-2">
+                                {parsedDescription.first && <p className="font-medium">{parsedDescription.first}</p>}
+                                <p className="text-[#6B778C] text-xs line-clamp-5 whitespace-pre-wrap">
+                                    {parsedDescription.plain}
+                                </p>
+                            </div>
                         </div>
                     )}
 
                     <div className="pt-2 border-t border-[#DFE1E6]">
                         <p className="text-[10px] uppercase font-bold text-[#7A869A] mb-3 tracking-widest">Etapas</p>
                         <ProgressSteps
-                            currentLevel={pendingOutput?.level || (story.status === 'completed' ? 4 : 0)}
+                            currentLevel={shownOutput?.level || (story.status === 'completed' ? 4 : 0)}
                             approvedLevels={approvedOutputs.map((o: any) => o.level)}
+                            availableLevels={availableLevels}
+                            selectedLevel={selectedLevel}
+                            onStepClick={(level) => setSelectedLevel(level)}
                         />
                     </div>
                 </aside>
 
                 {/* Columna diseño + acciones */}
                 <div className="flex-1 min-w-0 space-y-6">
-                    {pendingOutput ? (
+                    {shownOutput ? (
                         <div className="space-y-6">
 
                             {/* Header del nivel */}
                             <div className="flex items-center justify-between border-b-2 border-[#0052CC] pb-2">
                                 <h2 className="font-semibold text-lg text-[#172B4D] flex items-center gap-2 flex-wrap">
-                                    {LEVEL_NAMES[pendingOutput.level]}
+                                    {LEVEL_NAMES[shownOutput.level]}
                                     <span className="text-[#5E6C84] font-mono text-xs bg-[#EBECF0] px-2 py-0.5 rounded-[3px]">
-                                        v{pendingOutput.version}
+                                        v{shownOutput.version}
                                     </span>
                                 </h2>
-                                {pendingOutput.level < 3 && (
+                                {shownOutput.status === 'pending' && shownOutput.level < 3 && (
                                     <span className="text-[11px] text-[#5E6C84] italic">
-                                        Si aprobás, se genera {LEVEL_NAMES[pendingOutput.level + 1]}
+                                        Si aprobás, se genera {LEVEL_NAMES[shownOutput.level + 1]}
                                     </span>
                                 )}
                             </div>
@@ -201,53 +238,58 @@ export default function Review() {
                             {/* Preview del diseño */}
                             <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm overflow-hidden" style={{ minHeight: 600 }}>
                                 <WireframePreview
-                                    content={pendingOutput.content}
-                                    type={pendingOutput.content_type}
+                                    content={shownOutput.content}
+                                    type={shownOutput.content_type}
                                 />
                             </div>
 
-                            {/* CTA de aprobación — debajo del preview */}
-                            <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm p-5 space-y-5">
-                                <button
-                                    onClick={handleApprove}
-                                    disabled={submitting}
-                                    className="w-full py-3 bg-[#36B37E] hover:bg-[#32a473] disabled:bg-[#EBECF0] disabled:text-[#A5ADBA] rounded-[3px] font-bold transition-all flex items-center justify-center gap-2 text-white text-sm"
-                                >
-                                    {submitting ? (
-                                        <>
-                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                            Aprobando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                            Aprobar y continuar
-                                        </>
-                                    )}
-                                </button>
-
-                                <div className="border-t border-[#EBECF0] pt-5 space-y-2">
-                                    <label className="block text-xs font-bold text-[#7A869A] uppercase tracking-widest">
-                                        Pedir cambios — v{pendingOutput.version + 1}
-                                    </label>
-                                    <textarea
-                                        value={feedback}
-                                        onChange={(e) => setFeedback(e.target.value)}
-                                        placeholder="Describí qué querés cambiar…"
-                                        className="w-full h-24 px-3 py-2 bg-[#F4F5F7] border border-[#DFE1E6] rounded-[3px] text-sm resize-none focus:bg-white focus:border-[#4C9AFF] outline-none transition-all placeholder-[#A5ADBA] text-[#172B4D]"
-                                        disabled={submitting}
-                                    />
+                            {shownOutput.status === 'pending' ? (
+                                <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm p-5 space-y-5">
                                     <button
-                                        onClick={handleReject}
-                                        disabled={submitting || !feedback.trim()}
-                                        className="w-full py-2 bg-white hover:bg-[#F4F5F7] text-[#42526E] disabled:opacity-50 disabled:cursor-not-allowed rounded-[3px] text-sm font-bold transition-colors border border-[#DFE1E6]"
+                                        onClick={handleApprove}
+                                        disabled={submitting}
+                                        className="w-full py-3 bg-[#36B37E] hover:bg-[#32a473] disabled:bg-[#EBECF0] disabled:text-[#A5ADBA] rounded-[3px] font-bold transition-all flex items-center justify-center gap-2 text-white text-sm"
                                     >
-                                        Enviar feedback e iterar
+                                        {submitting ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                Aprobando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                Aprobar y continuar
+                                            </>
+                                        )}
                                     </button>
+
+                                    <div className="border-t border-[#EBECF0] pt-5 space-y-2">
+                                        <label className="block text-xs font-bold text-[#7A869A] uppercase tracking-widest">
+                                            Pedir cambios — v{shownOutput.version + 1}
+                                        </label>
+                                        <textarea
+                                            value={feedback}
+                                            onChange={(e) => setFeedback(e.target.value)}
+                                            placeholder="Describí qué querés cambiar…"
+                                            className="w-full h-24 px-3 py-2 bg-[#F4F5F7] border border-[#DFE1E6] rounded-[3px] text-sm resize-none focus:bg-white focus:border-[#4C9AFF] outline-none transition-all placeholder-[#A5ADBA] text-[#172B4D]"
+                                            disabled={submitting}
+                                        />
+                                        <button
+                                            onClick={handleReject}
+                                            disabled={submitting || !feedback.trim()}
+                                            className="w-full py-2 bg-white hover:bg-[#F4F5F7] text-[#42526E] disabled:opacity-50 disabled:cursor-not-allowed rounded-[3px] text-sm font-bold transition-colors border border-[#DFE1E6]"
+                                        >
+                                            Enviar feedback e iterar
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm p-4 text-sm text-[#5E6C84]">
+                                    Estás viendo una versión ya aprobada/iterada. Podés cambiar de etapa desde la columna izquierda.
+                                </div>
+                            )}
                         </div>
 
                     ) : story.status === 'completed' ? (
@@ -353,7 +395,7 @@ export default function Review() {
                 <div className="fixed inset-0 z-50 bg-[#091E42]/45 backdrop-blur-[1px] flex items-center justify-center p-6">
                     <div className="w-full max-w-5xl bg-white rounded-md border border-[#DFE1E6] shadow-2xl overflow-hidden">
                         <div className="h-16 px-6 border-b border-[#DFE1E6] flex items-center justify-between">
-                            <h3 className="text-[30px] font-semibold text-[#172B4D]">Editar Historia / Descripción</h3>
+                            <h3 className="text-2xl font-semibold text-[#172B4D]">Historia / Descripción</h3>
                             <button
                                 onClick={() => setDescriptionModalOpen(false)}
                                 className="text-[#6B778C] hover:text-[#172B4D] text-2xl leading-none"
@@ -375,9 +417,20 @@ export default function Review() {
                                 <span>&lt;/&gt;</span>
                             </div>
                             <div className="border border-t-0 border-[#DFE1E6] rounded-b-[3px] bg-white min-h-[360px] p-6">
-                                <pre className="whitespace-pre-wrap font-serif text-[34px] leading-[1.55] text-[#172B4D]">
-                                    {story.description}
-                                </pre>
+                                {parsedDescription.first && (
+                                    <h4 className="text-xl font-semibold text-[#172B4D] mb-4">{parsedDescription.first}</h4>
+                                )}
+                                {parsedDescription.bulletLines.length > 0 ? (
+                                    <ul className="list-disc pl-6 space-y-2 text-base text-[#172B4D] leading-relaxed">
+                                        {parsedDescription.bulletLines.map((item, idx) => (
+                                            <li key={idx}>{item}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <pre className="whitespace-pre-wrap text-base leading-relaxed text-[#172B4D] font-sans">
+                                        {parsedDescription.plain}
+                                    </pre>
+                                )}
                             </div>
                         </div>
 

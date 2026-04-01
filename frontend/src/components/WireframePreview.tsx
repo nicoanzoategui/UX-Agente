@@ -22,6 +22,10 @@ export default function WireframePreview({ content, type }: Props) {
     const desktopSvg = parts.length === 2 ? parts[0].trim() : content.trim();
     const mobileSvg = parts.length === 2 ? parts[1].trim() : content.trim();
     const activeSvg = deviceTab === 'desktop' ? desktopSvg : mobileSvg;
+    const viewportWidth = deviceTab === 'desktop' ? 1180 : 390;
+    const deviceShellClass = deviceTab === 'desktop'
+        ? 'w-full max-w-[1180px]'
+        : 'w-[390px] max-w-[390px] border-8 border-[#172B4D] rounded-[28px]';
 
     return (
         <div className="flex flex-col h-full">
@@ -82,25 +86,36 @@ export default function WireframePreview({ content, type }: Props) {
                     {isSvg ? (
                         <div className="h-full w-full bg-white border border-[#DFE1E6] rounded-[3px] flex items-start justify-center overflow-auto p-6">
                             <div
+                                className={deviceShellClass}
                                 style={{
                                     transform: `scale(${zoom / 100})`,
                                     transformOrigin: 'top center',
-                                    width: deviceTab === 'desktop' ? `${10000 / zoom}%` : '375px',
-                                    maxWidth: deviceTab === 'desktop' ? undefined : '375px',
+                                    width: viewportWidth,
                                 }}
                                 dangerouslySetInnerHTML={{ __html: activeSvg }}
                             />
                         </div>
                     ) : (
-                        <Suspense
-                            fallback={
-                                <div className="flex items-center justify-center min-h-[320px] text-[#5E6C84] text-sm">
-                                    Cargando vista previa interactiva...
-                                </div>
-                            }
-                        >
-                            <HiFiSandpackPreview code={content} />
-                        </Suspense>
+                        <div className="h-full w-full bg-white border border-[#DFE1E6] rounded-[3px] flex items-start justify-center overflow-auto p-6">
+                            <div
+                                className={deviceShellClass}
+                                style={{
+                                    width: viewportWidth,
+                                    transform: `scale(${zoom / 100})`,
+                                    transformOrigin: 'top center',
+                                }}
+                            >
+                                <Suspense
+                                    fallback={
+                                        <div className="flex items-center justify-center min-h-[320px] text-[#5E6C84] text-sm">
+                                            Cargando vista previa interactiva...
+                                        </div>
+                                    }
+                                >
+                                    <HiFiSandpackPreview code={content} />
+                                </Suspense>
+                            </div>
+                        </div>
                     )}
                 </div>
             ) : (

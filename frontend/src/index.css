@@ -2,29 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-[#F4F5F7] text-[#172B4D] antialiased;
+@layer base {
+    body {
+        @apply bg-gray-50 text-gray-900 antialiased;
+    }
 }
 
-/* Jira-like scrollbar */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes agentPulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.4s ease-out;
+}
+
+.pulse-animation {
+    animation: agentPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.gradient-bg {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.card-hover {
+    transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-4px);
+    box-shadow:
+        0 20px 25px -5px rgba(0, 0, 0, 0.1),
+        0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-[#EBECF0];
+    @apply bg-gray-100;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-[#C1C7D0] rounded-full;
+    @apply bg-gray-300 rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-[#A5ADBA];
+    @apply bg-gray-400;
 }
 
-/* Custom utility for Jira cards */
-.jira-card {
-  @apply bg-white border border-[#DFE1E6] rounded-[3px] shadow-sm hover:shadow-md transition-shadow;
+@media (prefers-reduced-motion: reduce) {
+    .animate-spin,
+    .animate-pulse,
+    .fade-in,
+    .pulse-animation {
+        animation: none;
+    }
+    .card-hover:hover {
+        transform: none;
+    }
+}
+
+@layer utilities {
+    .ux-focus {
+        @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2;
+    }
+    .ux-focus-field {
+        @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-1;
+    }
 }

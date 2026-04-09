@@ -1,42 +1,91 @@
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
-import Review from './pages/Review';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import { BrowserRouter, Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
+import { ToastProvider } from './context/ToastContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import AppFooter from './components/AppFooter';
+import PlatformNav from './components/platform/PlatformNav';
+import { getCurrentInitiativeId } from './lib/initiativesSession';
+import Login from './pages/Login';
+import DashboardPage from './pages/DashboardPage';
+import UnderstandingPage from './pages/UnderstandingPage';
+import UxAgentAnalysisPage from './pages/UxAgentAnalysisPage';
+import IdeacionPage from './pages/IdeacionPage';
+import SolutionIterationPage from './pages/SolutionIterationPage';
+import PrototipadoPage from './pages/PrototipadoPage';
+import HandoffPage from './pages/HandoffPage';
+import ProjectSummaryPage from './pages/ProjectSummaryPage';
+
+function RequireAuth() {
+    const { user, loading } = useAuth();
+    const location = useLocation();
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-600 text-sm">
+                Cargando sesión…
+            </div>
+        );
+    }
+    if (!user) {
+        return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+    }
+    return <Outlet />;
+}
+
+function RequireActiveInitiative() {
+    if (!getCurrentInitiativeId()) {
+        return <Navigate to="/" replace />;
+    }
+    return <Outlet />;
+}
+
+function AuthenticatedLayout() {
+    return (
+        <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
+            <PlatformNav />
+            <Outlet />
+            <AppFooter />
+        </div>
+    );
+}
+
+function AppRoutes() {
+    return (
+        <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<RequireAuth />}>
+                <Route element={<AuthenticatedLayout />}>
+                    <Route index element={<DashboardPage />} />
+                    <Route path="iniciativa/nueva" element={<UnderstandingPage />} />
+                    <Route element={<RequireActiveInitiative />}>
+                        <Route path="analisis" element={<UxAgentAnalysisPage />} />
+                        <Route path="ideacion" element={<IdeacionPage />} />
+                        <Route path="ideacion/iterar/:solutionIndex" element={<SolutionIterationPage />} />
+                        <Route path="prototipado" element={<PrototipadoPage />} />
+                        <Route path="handoff" element={<HandoffPage />} />
+                        <Route path="resumen" element={<ProjectSummaryPage />} />
+                    </Route>
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
+            </Route>
+        </Routes>
+    );
+}
+
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 export default function App() {
-    return (
+    const tree = (
         <BrowserRouter>
-            <div className="min-h-screen bg-[#F4F5F7] text-[#172B4D]">
-                <header className="bg-white border-b border-[#DFE1E6] sticky top-0 z-50">
-                    <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-                        <Link to="/" className="flex items-center gap-2 group">
-                            <div className="w-8 h-8 rounded-md bg-[#0052CC] flex items-center justify-center text-white font-bold text-xl shadow-sm">
-                                D
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="font-bold text-[#172B4D] leading-tight">Design Agent</span>
-                                <span className="text-[10px] text-[#5E6C84] uppercase tracking-wider font-semibold">Dashboard • MVP</span>
-                            </div>
-                        </Link>
-                        <div className="flex items-center gap-6">
-                            <a
-                                href={`https://${import.meta.env.VITE_JIRA_HOST || 'jira.atlassian.com'}`}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-sm font-medium text-[#42526E] hover:text-[#0052CC] transition-colors"
-                            >
-                                Abrir Jira ↗
-                            </a>
-                        </div>
-                    </div>
-                </header>
-
-                <main className="max-w-6xl mx-auto p-6">
-                    <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/review/:storyId" element={<Review />} />
-                    </Routes>
-                </main>
-            </div>
+            <AuthProvider>
+                <ToastProvider>
+                    <AppRoutes />
+                </ToastProvider>
+            </AuthProvider>
         </BrowserRouter>
     );
+    if (googleClientId) {
+        return <GoogleOAuthProvider clientId={googleClientId}>{tree}</GoogleOAuthProvider>;
+    }
+    return tree;
 }

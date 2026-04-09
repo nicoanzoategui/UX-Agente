@@ -11,6 +11,7 @@ dist/
 build/
 
 # IDE
+.cursor/
 .vscode/
 .idea/
 *.swp
@@ -31,3 +32,6 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
+
+# AIDesigner CLI (wireframe alta fidelidad opcional)
+.aidesigner/

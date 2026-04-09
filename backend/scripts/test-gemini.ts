@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { config } from './src/config/env.js';
+import { config } from '../src/config/env.js';
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || '');
 

@@ -1,0 +1,12 @@
+# https://docs.railway.com/reference/config-as-code
+# En Railway: Root Directory = backend (o monorepo con esta carpeta como servicio).
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm install && npm run build"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

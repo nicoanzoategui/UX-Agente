@@ -1,6 +1,6 @@
 # Framework UX
 
-**Checklist manual** (credenciales, deploy, smoke en prod): ver [ENTREGA.md](ENTREGA.md).
+**Checklist manual** (credenciales, deploy, smoke en prod): ver [ENTREGA.md](ENTREGA.md). **Vercel + Railway:** [docs/DEPLOY.md](docs/DEPLOY.md).
 
 Tablero kanban propio (**To Do → WIP → Revisión → Hecho**) para llevar un kickoff desde la **transcripción de una reunión** hasta **tres wireframes HTML** de baja fidelidad, con gates de revisión en la misma aplicación. Sin integración con Jira.
 

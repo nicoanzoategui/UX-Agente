@@ -1,22 +1,12 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env.js';
+import { getSessionCookieClearOptions, getSessionCookieSetOptions } from '../config/session-cookie.js';
 import { loginWithGoogleIdToken } from '../services/google-auth.service.js';
 import { type AuthSession } from '../middleware/require-auth.js';
 import { TEAM_WORKSPACE_ID } from '../constants/team.js';
 
 const router = Router();
-
-function cookieOptions() {
-    const maxAge = config.JWT_EXPIRES_DAYS * 24 * 60 * 60 * 1000;
-    return {
-        httpOnly: true,
-        secure: config.NODE_ENV === 'production',
-        sameSite: 'lax' as const,
-        maxAge,
-        path: '/',
-    };
-}
 
 router.post('/google', async (req, res) => {
     try {
@@ -32,7 +22,7 @@ router.post('/google', async (req, res) => {
                 config.JWT_SECRET || 'dev-insecure',
                 { expiresIn: `${config.JWT_EXPIRES_DAYS}d` }
             );
-            res.cookie(config.SESSION_COOKIE_NAME, token, cookieOptions());
+            res.cookie(config.SESSION_COOKIE_NAME, token, getSessionCookieSetOptions());
             res.json({ ok: true, user: { id: session.userId, email: session.email, name: session.name } });
             return;
         }
@@ -56,7 +46,7 @@ router.post('/google', async (req, res) => {
             config.JWT_SECRET,
             { expiresIn: `${config.JWT_EXPIRES_DAYS}d` }
         );
-        res.cookie(config.SESSION_COOKIE_NAME, token, cookieOptions());
+        res.cookie(config.SESSION_COOKIE_NAME, token, getSessionCookieSetOptions());
         res.json({
             ok: true,
             user: { id: session.userId, email: session.email, name: session.name },
@@ -68,7 +58,7 @@ router.post('/google', async (req, res) => {
 });
 
 router.post('/logout', (_req, res) => {
-    res.clearCookie(config.SESSION_COOKIE_NAME, { path: '/' });
+    res.clearCookie(config.SESSION_COOKIE_NAME, getSessionCookieClearOptions());
     res.json({ ok: true });
 });
 

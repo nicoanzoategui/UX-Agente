@@ -20,7 +20,10 @@ const SERVICE_VERSION =
 
 const app = express();
 
-if (config.TRUST_PROXY) {
+/** Railway (y otros reverse proxy) terminan TLS; sin esto `req.ip` y rate limit pueden fallar. */
+const trustProxy =
+    config.TRUST_PROXY || Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.FLY_APP_NAME);
+if (trustProxy) {
     app.set('trust proxy', 1);
 }
 

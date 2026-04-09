@@ -1,4 +1,6 @@
-/** Pantallas del mockup móvil (demo HTML paso 3). */
+/** Pantallas del mockup móvil (paso 3): contenido generado por el agente o demo fijo. */
+
+import type { PrototypeScreenSpec } from '../../../lib/workflowSession';
 
 type NextProps = {
     brand: string;
@@ -7,15 +9,86 @@ type NextProps = {
 
 export const PROTOTYPE_SCREEN_COUNT = 6;
 
+function DynamicFlowScreen({
+    spec,
+    onNext,
+    brand,
+    showBrandHint,
+}: {
+    spec: PrototypeScreenSpec;
+    onNext: () => void;
+    brand: string;
+    showBrandHint: boolean;
+}) {
+    const cta = spec.cta?.trim() || 'Continuar';
+    return (
+        <div className="p-6">
+            {showBrandHint ? (
+                <p className="text-center text-xs font-medium text-purple-600 mb-3 uppercase tracking-wide">
+                    {brand}
+                </p>
+            ) : null}
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{spec.title}</h2>
+            {spec.subtitle ? <p className="text-gray-600 mb-4 text-sm sm:text-base">{spec.subtitle}</p> : null}
+            {spec.bullets && spec.bullets.length > 0 ? (
+                <ul className="space-y-2 mb-6">
+                    {spec.bullets.map((b, i) => (
+                        <li key={i} className="flex items-start text-sm text-gray-800">
+                            <svg
+                                className="w-5 h-5 text-green-500 mr-2 shrink-0 mt-0.5"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                                aria-hidden
+                            >
+                                <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                    clipRule="evenodd"
+                                />
+                            </svg>
+                            <span>{b.replace(/^•\s*/, '')}</span>
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+            {spec.note ? (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+                    <p className="text-sm text-blue-900 whitespace-pre-wrap">{spec.note}</p>
+                </div>
+            ) : null}
+            <button
+                type="button"
+                onClick={onNext}
+                className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition-all"
+            >
+                {cta}
+            </button>
+        </div>
+    );
+}
+
 export function PrototypeScreen({
     index,
     brand,
     onNext,
+    customScreens,
 }: {
     index: number;
     brand: string;
     onNext: () => void;
+    /** 6 pantallas alineadas a la solución / iteración (API). */
+    customScreens?: PrototypeScreenSpec[] | null;
 }) {
+    if (customScreens && customScreens.length === PROTOTYPE_SCREEN_COUNT && index >= 0 && index < PROTOTYPE_SCREEN_COUNT) {
+        return (
+            <DynamicFlowScreen
+                spec={customScreens[index]}
+                onNext={onNext}
+                brand={brand}
+                showBrandHint={index === 0}
+            />
+        );
+    }
     switch (index) {
         case 0:
             return <ScreenWelcome brand={brand} onNext={onNext} />;

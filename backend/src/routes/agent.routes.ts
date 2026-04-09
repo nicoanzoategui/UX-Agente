@@ -4,10 +4,12 @@ import { requireAuth } from '../middleware/require-auth.js';
 import { understandingUploadFields } from '../middleware/understanding-upload.js';
 import {
     generateIdeationSolutions,
+    generatePrototypeFlowScreens,
     generateSolutionIterationReply,
     generateSpecWithPromptC,
     generateStepEWireframeOptions,
     generateUnderstandingAnalysis,
+    type IdeationSolutionDto,
     type UnderstandingAnalysisResult,
 } from '../services/llm.service.js';
 
@@ -112,6 +114,29 @@ function isUnderstandingAnalysis(a: unknown): a is UnderstandingAnalysisResult {
     return Boolean(a && typeof a === 'object' && typeof (a as UnderstandingAnalysisResult).executiveSummary === 'string');
 }
 
+function parseIdeationSolutionBody(x: unknown): IdeationSolutionDto | null {
+    if (!x || typeof x !== 'object') return null;
+    const o = x as Record<string, unknown>;
+    const title = typeof o.title === 'string' ? o.title.trim() : '';
+    const flowSteps = Array.isArray(o.flowSteps)
+        ? (o.flowSteps as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    if (!title || flowSteps.length < 3) return null;
+    const howItSolves = Array.isArray(o.howItSolves)
+        ? (o.howItSolves as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    const expectedImpact = Array.isArray(o.expectedImpact)
+        ? (o.expectedImpact as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    return {
+        title,
+        recommendedByAi: o.recommendedByAi === true,
+        flowSteps,
+        howItSolves: howItSolves.length ? howItSolves : ['—'],
+        expectedImpact: expectedImpact.length ? expectedImpact : ['—'],
+    };
+}
+
 /** POST /api/generate-ideation-solutions — 3 propuestas desde el análisis JSON. */
 router.post('/generate-ideation-solutions', async (req, res) => {
     const body = req.body as {
@@ -181,6 +206,53 @@ router.post('/iterate-solution', async (req, res) => {
     } catch (error) {
         console.error('Error en iterate-solution:', error);
         const msg = (error as Error)?.message || 'Error en la iteración';
+        res.status(500).json({ error: msg });
+    }
+});
+
+/** POST /api/generate-prototype-screens — 6 pantallas de baja fidelidad alineadas a solución + iteración. */
+router.post('/generate-prototype-screens', async (req, res) => {
+    const body = req.body as {
+        initiativeName?: string;
+        jiraTicket?: string;
+        squad?: string;
+        analysis?: unknown;
+        solution?: unknown;
+        iterationMessages?: unknown;
+    };
+    const initiativeName = String(body.initiativeName ?? '').trim();
+    if (!initiativeName) {
+        return res.status(400).json({ error: 'initiativeName es obligatorio.' });
+    }
+    if (!isUnderstandingAnalysis(body.analysis)) {
+        return res.status(400).json({ error: 'analysis inválido.' });
+    }
+    const solution = parseIdeationSolutionBody(body.solution);
+    if (!solution) {
+        return res.status(400).json({ error: 'solution debe incluir title y al menos 3 flowSteps.' });
+    }
+    const msgRaw = Array.isArray(body.iterationMessages) ? body.iterationMessages : [];
+    const iterationMessages: { role: 'user' | 'assistant'; text: string }[] = [];
+    for (const m of msgRaw) {
+        if (!m || typeof m !== 'object') continue;
+        const o = m as Record<string, unknown>;
+        const role = o.role === 'assistant' ? 'assistant' : o.role === 'user' ? 'user' : null;
+        const text = typeof o.text === 'string' ? o.text.trim() : '';
+        if (role && text) iterationMessages.push({ role, text });
+    }
+    try {
+        const result = await generatePrototypeFlowScreens({
+            initiativeName,
+            jiraTicket: String(body.jiraTicket ?? '').trim(),
+            squad: String(body.squad ?? '').trim(),
+            analysis: body.analysis,
+            solution,
+            iterationMessages,
+        });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error en generate-prototype-screens:', error);
+        const msg = (error as Error)?.message || 'Error generando prototipo';
         res.status(500).json({ error: msg });
     }
 });

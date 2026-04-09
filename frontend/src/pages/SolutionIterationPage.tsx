@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ProgressBar from '../components/platform/ProgressBar';
+import { useToast } from '../context/ToastContext';
 import { loadWorkflow, patchWorkflow, type PrototypeMeta, type WorkflowSession } from '../lib/workflowSession';
 import { api, ApiError } from '../services/api';
 
@@ -26,6 +27,7 @@ function buildPrototypeMetaFromTitle(title: string): PrototypeMeta {
 export default function SolutionIterationPage() {
     const { solutionIndex } = useParams<{ solutionIndex: string }>();
     const navigate = useNavigate();
+    const toast = useToast();
     const idx = Number(solutionIndex);
     const num = idx >= 1 && idx <= 3 ? (idx as 1 | 2 | 3) : null;
 
@@ -34,11 +36,24 @@ export default function SolutionIterationPage() {
     const [input, setInput] = useState('');
     const [typing, setTyping] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [generating, setGenerating] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
 
     const solution = wf?.ideationSolutions && num ? wf.ideationSolutions[num - 1] : null;
     const shortName =
         solution?.title.replace(/^Solución\s*\d+\s*:\s*/i, '').trim() || solution?.title || '';
+
+    const userTurnCount = useMemo(() => messages.filter((m) => m.role === 'user').length, [messages]);
+    const canAcceptIterated = useMemo(() => {
+        if (userTurnCount < 1 || typing || busy || generating) return false;
+        const last = messages[messages.length - 1];
+        return Boolean(last && last.role === 'assistant');
+    }, [userTurnCount, typing, busy, generating, messages]);
+
+    const latestAssistantText = useMemo(() => {
+        const assistants = messages.filter((m) => m.role === 'assistant');
+        return assistants.length ? assistants[assistants.length - 1].text : '';
+    }, [messages]);
 
     useEffect(() => {
         document.title = 'Iterar solución · UX Agent Platform';
@@ -74,7 +89,7 @@ export default function SolutionIterationPage() {
 
     async function sendMessage(text: string) {
         const t = text.trim();
-        if (!t || !wf || !solution || !num || busy) return;
+        if (!t || !wf || !solution || !num || busy || generating) return;
         const analysis = wf.analysis;
         if (!analysis) return;
         const userTurn: ChatTurn = { role: 'user', text: t };
@@ -107,13 +122,34 @@ export default function SolutionIterationPage() {
     }
 
     async function acceptIterated() {
-        if (!wf || !solution || !num) return;
-        patchWorkflow({
-            selectedSolutionIndex: num,
-            prototypeMeta: buildPrototypeMetaFromTitle(solution.title),
-        });
-        await new Promise((r) => setTimeout(r, 1600));
-        navigate('/prototipado');
+        if (!wf || !solution || !num || !wf.analysis || !canAcceptIterated) return;
+        setGenerating(true);
+        try {
+            const iterationMessages = messages.map((m) => ({ role: m.role, text: m.text }));
+            const { summaryLine, screens } = await api.generatePrototypeScreens({
+                initiativeName: wf.initiativeName,
+                jiraTicket: wf.jiraTicket,
+                squad: wf.squad,
+                analysis: wf.analysis,
+                solution,
+                iterationMessages,
+            });
+            const base = buildPrototypeMetaFromTitle(solution.title);
+            patchWorkflow({
+                selectedSolutionIndex: num,
+                prototypeMeta: {
+                    ...base,
+                    summaryLine: summaryLine || base.summaryLine,
+                },
+                prototypeScreens: screens,
+            });
+            navigate('/prototipado');
+        } catch (e) {
+            const msg = e instanceof ApiError ? e.message : 'No se pudo generar el prototipo con tu iteración.';
+            toast(msg, 'error');
+        } finally {
+            setGenerating(false);
+        }
     }
 
     if (!wf || !solution || !num) {
@@ -125,8 +161,20 @@ export default function SolutionIterationPage() {
     }
 
     return (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1 relative">
             <ProgressBar currentStep={2} />
+
+            {generating ? (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[400] p-4">
+                    <div className="bg-white rounded-lg p-8 max-w-md text-center shadow-xl">
+                        <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">Generando prototipo…</h3>
+                        <p className="text-gray-600 text-sm">
+                            Estamos armando las 6 pantallas con tu solución y lo conversado en la iteración.
+                        </p>
+                    </div>
+                </div>
+            ) : null}
 
             <div className="bg-white rounded-lg shadow-sm p-8 fade-in">
                 <div className="mb-6">
@@ -237,7 +285,7 @@ export default function SolutionIterationPage() {
                                         <button
                                             key={s}
                                             type="button"
-                                            disabled={busy}
+                                            disabled={busy || generating}
                                             onClick={() => void sendMessage(s)}
                                             className="block w-full text-left px-4 py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-sm text-gray-900 transition-all ux-focus disabled:opacity-50"
                                         >
@@ -271,18 +319,20 @@ export default function SolutionIterationPage() {
                     </div>
 
                     <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-                        <form onSubmit={onSubmit} className="flex gap-2">
+                        <form id="iteration-chat-form" onSubmit={onSubmit} className="flex gap-2">
                             <input
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 placeholder="Escribe tu sugerencia para iterar la solución..."
                                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                disabled={busy}
+                                disabled={busy || generating}
+                                autoComplete="off"
                             />
                             <button
                                 type="submit"
-                                disabled={busy || !input.trim()}
+                                form="iteration-chat-form"
+                                disabled={busy || generating || !input.trim()}
                                 className="gradient-bg text-white px-6 py-2 rounded-lg font-semibold hover:opacity-90 transition-all ux-focus disabled:opacity-50"
                             >
                                 Enviar
@@ -290,6 +340,15 @@ export default function SolutionIterationPage() {
                         </form>
                     </div>
                 </div>
+
+                {userTurnCount >= 1 && latestAssistantText && !typing ? (
+                    <div className="mb-6 border-2 border-emerald-200 bg-emerald-50 rounded-lg p-4">
+                        <p className="text-sm font-semibold text-emerald-900 mb-2">
+                            Propuesta actual del agente (revisala antes de ir a prototipado)
+                        </p>
+                        <p className="text-sm text-emerald-950 whitespace-pre-wrap">{latestAssistantText}</p>
+                    </div>
+                ) : null}
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                     <div className="flex items-start">
@@ -325,12 +384,23 @@ export default function SolutionIterationPage() {
                     </Link>
                     <button
                         type="button"
+                        disabled={!canAcceptIterated || generating}
+                        title={
+                            !canAcceptIterated
+                                ? 'Primero enviá al menos un mensaje y esperá la respuesta del agente.'
+                                : undefined
+                        }
                         onClick={() => void acceptIterated()}
-                        className="flex-1 gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-all ux-focus"
+                        className="flex-1 gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-all ux-focus disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Aceptar solución iterada
+                        {generating ? 'Generando…' : 'Aceptar y generar prototipo'}
                     </button>
                 </div>
+                {!canAcceptIterated && userTurnCount === 0 ? (
+                    <p className="text-xs text-gray-500 mt-2 text-center sm:text-right">
+                        Enviá una iteración (botón Enviar) y, cuando el agente responda, podrás generar el prototipado.
+                    </p>
+                ) : null}
             </div>
         </main>
     );

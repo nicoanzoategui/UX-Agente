@@ -1,6 +1,20 @@
 const INITIATIVES_KEY = 'ux-agent-initiatives-v1';
 const CURRENT_ID_KEY = 'ux-agent-current-initiative-id-v1';
 
+/** Limpia todo el estado local del UX Agent (otro usuario en el mismo navegador, o reset duro). */
+export function clearAllUxAgentSessionStorage(): void {
+    try {
+        const toRemove: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith('ux-agent-')) toRemove.push(k);
+        }
+        toRemove.forEach((k) => sessionStorage.removeItem(k));
+    } catch {
+        /* ignore */
+    }
+}
+
 export type InitiativeRecord = {
     id: string;
     createdAt: string;
@@ -61,6 +75,14 @@ export function createNewInitiative(): string {
     list.unshift({ id, createdAt: now, updatedAt: now, completed: false });
     saveInitiativeRecords(list);
     setCurrentInitiativeId(id);
+    try {
+        const key = `ux-agent-workflow-${id}`;
+        if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, JSON.stringify({ initiativeName: '', jiraTicket: '', squad: '' }));
+        }
+    } catch {
+        /* ignore */
+    }
     return id;
 }
 

@@ -43,7 +43,11 @@ export default function PrototipadoPage() {
                             ✓ Generado
                         </span>
                     </div>
-                    <p className="text-gray-600">El UX Agent ha creado un wireframe navegable en baja fidelidad</p>
+                    <p className="text-gray-600">
+                        {wf.prototypeScreens?.length === 6
+                            ? 'Prototipo generado a partir de la solución elegida y la iteración con el agente.'
+                            : 'El UX Agent ha creado un wireframe navegable en baja fidelidad'}
+                    </p>
                 </div>
 
                 <div className="mb-6 bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -72,7 +76,12 @@ export default function PrototipadoPage() {
                         <div className="max-w-md mx-auto bg-white rounded-lg shadow-xl">
                             <div className="border-8 border-gray-800 rounded-[2rem] overflow-hidden">
                                 <div className="bg-white h-[600px] overflow-y-auto">
-                                    <PrototypeScreen index={screen} brand={brand} onNext={next} />
+                                    <PrototypeScreen
+                                        index={screen}
+                                        brand={brand}
+                                        onNext={next}
+                                        customScreens={wf.prototypeScreens}
+                                    />
                                 </div>
                             </div>
                         </div>

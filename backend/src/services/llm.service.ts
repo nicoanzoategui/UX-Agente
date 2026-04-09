@@ -25,6 +25,7 @@ import {
     SOLUTION_ITERATION_SYSTEM,
     buildIterationUserPrompt,
 } from '../prompts/ideation-prompts.js';
+import { PROTOTYPE_FLOW_SYSTEM, buildPrototypeFlowUserPrompt } from '../prompts/prototype-flow-prompts.js';
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || '');
 
@@ -730,4 +731,106 @@ export async function generateSolutionIterationReply(input: {
         maxOutputTokens: 4096,
     });
     return reply.trim();
+}
+
+export type PrototypeScreenSpecDto = {
+    title: string;
+    subtitle?: string;
+    bullets?: string[];
+    note?: string;
+    cta?: string;
+};
+
+export type PrototypeFlowResultDto = {
+    summaryLine: string;
+    screens: PrototypeScreenSpecDto[];
+};
+
+function parsePrototypeFlowJson(raw: string): PrototypeFlowResultDto {
+    let t = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+        throw new Error('La respuesta no contiene JSON del prototipo.');
+    }
+    t = t.slice(start, end + 1);
+    let parsed: { summaryLine?: unknown; screens?: unknown };
+    try {
+        parsed = JSON.parse(t) as { summaryLine?: unknown; screens?: unknown };
+    } catch {
+        throw new Error('No se pudo parsear el JSON del prototipo.');
+    }
+    const summaryLine =
+        typeof parsed.summaryLine === 'string' ? parsed.summaryLine.trim().slice(0, 200) : '';
+    if (!Array.isArray(parsed.screens) || parsed.screens.length !== 6) {
+        throw new Error('Se esperaban exactamente 6 pantallas en "screens".');
+    }
+    const screens: PrototypeScreenSpecDto[] = [];
+    for (const item of parsed.screens) {
+        if (!item || typeof item !== 'object') {
+            throw new Error('Cada pantalla del prototipo debe ser un objeto.');
+        }
+        const o = item as Record<string, unknown>;
+        const title = typeof o.title === 'string' ? o.title.trim() : '';
+        if (!title) {
+            throw new Error('Cada pantalla requiere "title".');
+        }
+        const subtitle = typeof o.subtitle === 'string' ? o.subtitle.trim() : undefined;
+        const note = typeof o.note === 'string' ? o.note.trim() : undefined;
+        const cta = typeof o.cta === 'string' ? o.cta.trim() : undefined;
+        const bullets = Array.isArray(o.bullets)
+            ? (o.bullets as unknown[]).filter((x) => typeof x === 'string').map((x) => (x as string).trim())
+            : undefined;
+        screens.push({
+            title,
+            ...(subtitle ? { subtitle } : {}),
+            ...(bullets?.length ? { bullets } : {}),
+            ...(note ? { note } : {}),
+            ...(cta ? { cta } : {}),
+        });
+    }
+    return {
+        summaryLine: summaryLine || 'Flujo prototipado en 6 pasos',
+        screens,
+    };
+}
+
+export async function generatePrototypeFlowScreens(input: {
+    initiativeName: string;
+    jiraTicket: string;
+    squad: string;
+    analysis: UnderstandingAnalysisResult;
+    solution: IdeationSolutionDto;
+    iterationMessages?: { role: 'user' | 'assistant'; text: string }[];
+}): Promise<PrototypeFlowResultDto> {
+    const lines: string[] = [];
+    for (const m of input.iterationMessages ?? []) {
+        if (!m?.text?.trim()) continue;
+        const who = m.role === 'assistant' ? 'Agente' : 'Usuario';
+        lines.push(`${who}: ${m.text.trim()}`);
+    }
+    const iterationTranscript = lines.join('\n\n').slice(0, 16_000);
+
+    const user = buildPrototypeFlowUserPrompt({
+        initiativeName: input.initiativeName,
+        jiraTicket: input.jiraTicket,
+        squad: input.squad,
+        analysisJson: JSON.stringify(input.analysis),
+        solutionJson: JSON.stringify(input.solution),
+        iterationTranscript,
+    });
+
+    let raw: string;
+    try {
+        raw = await generateTextWithRetries(PROTOTYPE_FLOW_SYSTEM, user, 0.45, {
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+        });
+    } catch (e) {
+        console.warn('Prototipo: reintentando sin responseMimeType JSON:', (e as Error)?.message ?? e);
+        raw = await generateTextWithRetries(PROTOTYPE_FLOW_SYSTEM, user, 0.45, {
+            maxOutputTokens: 8192,
+        });
+    }
+    return parsePrototypeFlowJson(raw);
 }

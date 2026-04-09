@@ -67,7 +67,13 @@ export default function HandoffPage() {
     const flujoPrincipal =
         sol.flowSteps.length > 0
             ? sol.flowSteps.join(' → ')
-            : 'Bienvenida → Explicación del proceso → Captura DNI → Captura Selfie → Datos personales → Confirmación';
+            : wf.prototypeMeta?.summaryLine || 'Definir el flujo en base al prototipo y al análisis.';
+
+    const opportunities = wf.analysis.opportunities ?? [];
+    const risks = wf.analysis.risksAndConstraints ?? [];
+    const openQuestions = wf.analysis.openQuestions ?? [];
+    const keyInsights = wf.analysis.keyInsights ?? [];
+    const focusIdeacion = wf.analysis.suggestedFocusForIdeation?.trim() ?? '';
 
     function tabBtn(id: DocTab, label: string) {
         const active = tab === id;
@@ -197,162 +203,115 @@ export default function HandoffPage() {
                                 </h3>
                                 <div className="mb-4">
                                     <h4 className="font-semibold text-gray-900 mb-2">Flujo completo de la experiencia</h4>
-                                    <p className="text-gray-700 leading-relaxed mb-3">
-                                        Implementación de un onboarding progresivo que prioriza la transparencia y la reducción
-                                        de fricción. El usuario es guiado paso a paso con visibilidad total del proceso,
-                                        explicaciones contextuales de cada requerimiento, y feedback inmediato de sus
-                                        acciones.
-                                        {sol.title ? (
+                                    <p className="text-gray-700 leading-relaxed mb-3 whitespace-pre-wrap">
+                                        <span className="font-medium text-gray-900">Solución:</span> {sol.title}.
+                                        {focusIdeacion ? (
                                             <>
                                                 {' '}
-                                                <span className="font-medium text-gray-900">Solución documentada:</span>{' '}
-                                                {sol.title}.
+                                                <span className="font-medium text-gray-900">Foco sugerido para ideación:</span>{' '}
+                                                {focusIdeacion}
                                             </>
                                         ) : null}
                                     </p>
                                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                        <p className="text-sm font-medium text-blue-900 mb-2">Flujo principal:</p>
+                                        <p className="text-sm font-medium text-blue-900 mb-2">Flujo principal (pasos)</p>
                                         <p className="text-sm text-blue-800">{flujoPrincipal}</p>
                                     </div>
                                 </div>
 
                                 <div className="mb-4">
-                                    <h4 className="font-semibold text-gray-900 mb-2">Lógica de interacción</h4>
+                                    <h4 className="font-semibold text-gray-900 mb-2">Cómo resuelve el problema</h4>
                                     <ul className="space-y-2 text-gray-700">
-                                        <li className="flex items-start">
-                                            <span className="text-purple-600 mr-2">•</span>
-                                            <span>
-                                                <strong>Progresividad:</strong> Cada pantalla revela un paso a la vez, evitando
-                                                sobrecarga cognitiva
-                                            </span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="text-purple-600 mr-2">•</span>
-                                            <span>
-                                                <strong>Transparencia:</strong> El usuario siempre sabe en qué paso está,
-                                                cuánto falta y por qué se solicita cada dato
-                                            </span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="text-purple-600 mr-2">•</span>
-                                            <span>
-                                                <strong>Feedback inmediato:</strong> Validación en tiempo real de documentos y
-                                                confirmación de acciones completadas
-                                            </span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="text-purple-600 mr-2">•</span>
-                                            <span>
-                                                <strong>Flujo lineal sin retroceso:</strong> Una vez completado un paso, se
-                                                avanza automáticamente al siguiente
-                                            </span>
-                                        </li>
+                                        {sol.howItSolves.map((line, i) => (
+                                            <li key={i} className="flex items-start">
+                                                <span className="text-purple-600 mr-2">•</span>
+                                                <span>{line.replace(/^•\s*/, '')}</span>
+                                            </li>
+                                        ))}
                                     </ul>
                                 </div>
 
-                                <div className="mb-4">
-                                    <h4 className="font-semibold text-gray-900 mb-2">Decisiones clave del flujo</h4>
-                                    <div className="space-y-3">
-                                        <div className="bg-gray-50 rounded-lg p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">1. Mostrar tiempo estimado desde el inicio</p>
-                                            <p className="text-sm text-gray-600">
-                                                Reduce ansiedad y establece expectativas claras sobre la duración del proceso
-                                            </p>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-lg p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">
-                                                2. Explicar el &quot;por qué&quot; antes de solicitar información
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                                Aumenta la confianza del usuario al entender el motivo detrás de cada requerimiento
-                                            </p>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-lg p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">
-                                                3. Datos personales pre-rellenados cuando sea posible
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                                Reduce esfuerzo del usuario aprovechando información extraída del DNI
-                                            </p>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-lg p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">
-                                                4. No permitir edición de datos críticos extraídos del DNI
-                                            </p>
-                                            <p className="text-sm text-gray-600">
-                                                Evita fraude y asegura integridad de la información validada
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="mb-4">
-                                    <h4 className="font-semibold text-gray-900 mb-2">Edge cases y estados del sistema</h4>
-                                    <div className="space-y-3">
-                                        <div className="border-l-4 border-yellow-500 bg-yellow-50 p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">Error en captura de DNI</p>
-                                            <p className="text-sm text-gray-700 mb-2">Si el documento no es legible o la foto está borrosa:</p>
-                                            <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                                                <li>• Mostrar feedback específico del error (ej: &quot;Imagen borrosa&quot;, &quot;Documento cortado&quot;)</li>
-                                                <li>• Permitir hasta 3 intentos antes de ofrecer ayuda manual</li>
-                                                <li>• Sugerir mejoras en iluminación o posicionamiento</li>
-                                            </ul>
-                                        </div>
-                                        <div className="border-l-4 border-yellow-500 bg-yellow-50 p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">Error en captura de selfie</p>
-                                            <p className="text-sm text-gray-700 mb-2">Si el rostro no coincide o la foto no cumple requisitos:</p>
-                                            <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                                                <li>
-                                                    • Indicar específicamente qué está fallando (ej: &quot;Retira los lentes&quot;,
-                                                    &quot;Mejora la iluminación&quot;)
+                                {opportunities.length > 0 ? (
+                                    <div className="mb-4">
+                                        <h4 className="font-semibold text-gray-900 mb-2">Oportunidades (análisis)</h4>
+                                        <ul className="space-y-2 text-gray-700">
+                                            {opportunities.map((line, i) => (
+                                                <li key={i} className="flex items-start">
+                                                    <span className="text-green-600 mr-2">•</span>
+                                                    <span>{line.replace(/^•\s*/, '')}</span>
                                                 </li>
-                                                <li>• Permitir hasta 3 intentos antes de escalar a validación manual</li>
-                                                <li>• Mostrar ejemplo visual de selfie correcta</li>
-                                            </ul>
-                                        </div>
-                                        <div className="border-l-4 border-red-500 bg-red-50 p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">Usuario abandona el flujo a mitad de proceso</p>
-                                            <p className="text-sm text-gray-700 mb-2">Estrategia de recuperación:</p>
-                                            <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                                                <li>• Guardar progreso automáticamente en cada paso completado</li>
-                                                <li>• Enviar email de recordatorio 24hs después del abandono</li>
-                                                <li>• Permitir retomar desde el último paso completado</li>
-                                                <li>• Eliminar datos guardados después de 7 días de inactividad</li>
-                                            </ul>
-                                        </div>
-                                        <div className="border-l-4 border-blue-500 bg-blue-50 p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">Verificación pendiente (estado asíncrono)</p>
-                                            <p className="text-sm text-gray-700 mb-2">Mientras se valida la identidad (puede tomar hasta 24hs):</p>
-                                            <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                                                <li>• Mostrar pantalla de confirmación con estado &quot;En revisión&quot;</li>
-                                                <li>• Permitir acceso limitado a funcionalidades básicas</li>
-                                                <li>• Enviar notificación push/email cuando la verificación esté completa</li>
-                                                <li>• Desbloquear funcionalidades completas una vez aprobada</li>
-                                            </ul>
-                                        </div>
-                                        <div className="border-l-4 border-red-500 bg-red-50 p-3">
-                                            <p className="font-medium text-gray-900 text-sm mb-1">Verificación rechazada</p>
-                                            <p className="text-sm text-gray-700 mb-2">Si la validación de identidad es rechazada:</p>
-                                            <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                                                <li>• Explicar claramente el motivo del rechazo</li>
-                                                <li>• Ofrecer opción de reintento con instrucciones específicas</li>
-                                                <li>• Proveer canal de soporte para casos especiales</li>
-                                                <li>• Después de 3 rechazos, escalar a validación manual con agente</li>
-                                            </ul>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
+
+                                {keyInsights.length > 0 ? (
+                                    <div className="mb-4">
+                                        <h4 className="font-semibold text-gray-900 mb-2">Insights clave</h4>
+                                        <ul className="space-y-2 text-gray-700">
+                                            {keyInsights.map((line, i) => (
+                                                <li key={i} className="flex items-start">
+                                                    <span className="text-blue-600 mr-2">•</span>
+                                                    <span>{line.replace(/^•\s*/, '')}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
+
+                                {risks.length > 0 ? (
+                                    <div className="mb-4">
+                                        <h4 className="font-semibold text-gray-900 mb-2">Riesgos y restricciones</h4>
+                                        <div className="space-y-2">
+                                            {risks.map((line, i) => (
+                                                <div key={i} className="border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-gray-800">
+                                                    {line.replace(/^•\s*/, '')}
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                </div>
+                                ) : null}
+
+                                {openQuestions.length > 0 ? (
+                                    <div className="mb-4">
+                                        <h4 className="font-semibold text-gray-900 mb-2">Preguntas abiertas</h4>
+                                        <ul className="space-y-2 text-gray-700">
+                                            {openQuestions.map((line, i) => (
+                                                <li key={i} className="flex items-start">
+                                                    <span className="text-gray-500 mr-2">?</span>
+                                                    <span>{line.replace(/^•\s*/, '')}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     )}
 
-                    {tab === 'screens' && <HandoffScreensTab />}
+                    {tab === 'screens' && (
+                        <HandoffScreensTab prototypeScreens={wf.prototypeScreens} flowSteps={sol.flowSteps} />
+                    )}
 
-                    {tab === 'content' && <HandoffContentTab initiativeName={wf.initiativeName} />}
+                    {tab === 'content' && (
+                        <HandoffContentTab
+                            initiativeName={wf.initiativeName}
+                            prototypeScreens={wf.prototypeScreens}
+                            flowSteps={sol.flowSteps}
+                        />
+                    )}
 
-                    {tab === 'components' && <HandoffComponentsTab />}
+                    {tab === 'components' && (
+                        <HandoffComponentsTab howItSolves={sol.howItSolves} opportunities={opportunities} />
+                    )}
 
-                    {tab === 'analytics' && <HandoffAnalyticsTab />}
+                    {tab === 'analytics' && (
+                        <HandoffAnalyticsTab
+                            expectedImpact={sol.expectedImpact}
+                            keyInsights={keyInsights}
+                            businessObjectives={wf.analysis.businessObjectives}
+                        />
+                    )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">

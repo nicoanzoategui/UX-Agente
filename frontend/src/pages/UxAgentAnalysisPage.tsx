@@ -83,6 +83,7 @@ export default function UxAgentAnalysisPage() {
                 ideationSolutions: undefined,
                 selectedSolutionIndex: undefined,
                 prototypeMeta: undefined,
+                prototypeScreens: undefined,
                 handoffVisited: false,
                 workflowCompleted: false,
             };

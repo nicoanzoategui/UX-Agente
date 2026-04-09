@@ -6,7 +6,9 @@ import { createNewInitiative, getCurrentInitiativeId } from '../lib/initiativesS
 import { loadWorkflow, saveWorkflow } from '../lib/workflowSession';
 import { api, ApiError } from '../services/api';
 
-const DRAFT_KEY = 'ux-agent-understanding-v2';
+function understandingDraftStorageKey(initiativeId: string): string {
+    return `ux-agent-understanding-draft-${initiativeId}`;
+}
 
 const FILE_ICON_COLORS = [
     'text-blue-500',
@@ -77,6 +79,8 @@ export default function UnderstandingPage() {
 
     const persistDraft = useCallback(() => {
         try {
+            const id = getCurrentInitiativeId();
+            if (!id) return;
             const draft: DraftShape = {
                 initiativeName,
                 jiraTicket,
@@ -88,7 +92,7 @@ export default function UnderstandingPage() {
                     displayName: s.file?.name ?? s.defaultName,
                 })),
             };
-            sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+            sessionStorage.setItem(understandingDraftStorageKey(id), JSON.stringify(draft));
         } catch {
             /* ignore */
         }
@@ -102,20 +106,28 @@ export default function UnderstandingPage() {
     }, []);
 
     useEffect(() => {
-        if (!getCurrentInitiativeId()) {
+        let id = getCurrentInitiativeId();
+        if (!id) {
             createNewInitiative();
+            id = getCurrentInitiativeId();
         }
+        if (!id) return;
+
+        try {
+            sessionStorage.removeItem('ux-agent-understanding-v2');
+        } catch {
+            /* ignore */
+        }
+
         const w = loadWorkflow();
         if (w) {
             setInitiativeName(w.initiativeName || '');
             setJiraTicket(w.jiraTicket || '');
             setSquad(w.squad || '');
         }
-    }, []);
 
-    useEffect(() => {
         try {
-            const raw = sessionStorage.getItem(DRAFT_KEY);
+            const raw = sessionStorage.getItem(understandingDraftStorageKey(id));
             if (!raw) return;
             const d = JSON.parse(raw) as DraftShape;
             if (typeof d.initiativeName === 'string') setInitiativeName(d.initiativeName);

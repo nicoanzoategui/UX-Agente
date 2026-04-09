@@ -164,16 +164,35 @@ export default function IdeacionPage() {
     }, [navigate, runIdeation]);
 
     async function acceptSolution(index: 1 | 2 | 3) {
-        if (!wf?.ideationSolutions?.[index - 1]) return;
+        if (!wf?.ideationSolutions?.[index - 1] || !wf.analysis) return;
         const solution = wf.ideationSolutions[index - 1];
-        patchWorkflow({
-            selectedSolutionIndex: index,
-            prototypeMeta: buildPrototypeMeta(solution),
-        });
         setOverlayMode('prototype');
-        await new Promise((r) => setTimeout(r, 1600));
-        setOverlayMode('idle');
-        navigate('/prototipado');
+        setError(null);
+        try {
+            const { summaryLine, screens } = await api.generatePrototypeScreens({
+                initiativeName: wf.initiativeName,
+                jiraTicket: wf.jiraTicket,
+                squad: wf.squad,
+                analysis: wf.analysis,
+                solution,
+                iterationMessages: [],
+            });
+            const base = buildPrototypeMeta(solution);
+            patchWorkflow({
+                selectedSolutionIndex: index,
+                prototypeMeta: {
+                    ...base,
+                    summaryLine: summaryLine || base.summaryLine,
+                },
+                prototypeScreens: screens,
+            });
+            navigate('/prototipado');
+        } catch (e) {
+            const msg = e instanceof ApiError ? e.message : 'No se pudo generar el prototipo. Reintentá.';
+            toast(msg, 'error');
+        } finally {
+            setOverlayMode('idle');
+        }
     }
 
     const contextLine = wf

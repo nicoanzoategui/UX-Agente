@@ -16,6 +16,15 @@ export type PrototypeMeta = {
     summaryLine: string;
 };
 
+/** Una pantalla del prototipo generada por el agente (6 en total). */
+export type PrototypeScreenSpec = {
+    title: string;
+    subtitle?: string;
+    bullets?: string[];
+    note?: string;
+    cta?: string;
+};
+
 export type WorkflowSession = {
     initiativeName: string;
     jiraTicket: string;
@@ -25,6 +34,8 @@ export type WorkflowSession = {
     ideationSolutions?: IdeationSolution[];
     selectedSolutionIndex?: 1 | 2 | 3 | null;
     prototypeMeta?: PrototypeMeta;
+    /** Si existe (6 ítems), el paso Prototipado usa estos textos en lugar del demo fijo. */
+    prototypeScreens?: PrototypeScreenSpec[];
     /** Usuario abrió la página de handoff al menos una vez */
     handoffVisited?: boolean;
     /** Llegó al resumen final del proyecto */
@@ -64,6 +75,7 @@ export function migrateLegacyWorkflowIfNeeded(): void {
             ideationSolutions: p.ideationSolutions,
             selectedSolutionIndex: p.selectedSolutionIndex,
             prototypeMeta: p.prototypeMeta,
+            prototypeScreens: Array.isArray(p.prototypeScreens) ? p.prototypeScreens : undefined,
             handoffVisited: p.handoffVisited,
             workflowCompleted: p.workflowCompleted,
         };
@@ -79,6 +91,7 @@ export function migrateLegacyWorkflowIfNeeded(): void {
         sessionStorage.setItem(workflowStorageKey(id), JSON.stringify(w));
         setCurrentInitiativeId(id);
         sessionStorage.removeItem(LEGACY_WORKFLOW_KEY);
+        sessionStorage.removeItem(LEGACY_ANALISIS);
     } catch {
         /* ignore */
     }
@@ -98,6 +111,7 @@ export function loadWorkflowByInitiativeId(initiativeId: string): WorkflowSessio
             ideationSolutions: p.ideationSolutions,
             selectedSolutionIndex: p.selectedSolutionIndex,
             prototypeMeta: p.prototypeMeta,
+            prototypeScreens: Array.isArray(p.prototypeScreens) ? p.prototypeScreens : undefined,
             handoffVisited: p.handoffVisited,
             workflowCompleted: p.workflowCompleted,
         };
@@ -134,7 +148,6 @@ export function saveWorkflow(w: WorkflowSession): void {
     ensureInitiativeRecord(id);
     try {
         sessionStorage.setItem(workflowStorageKey(id), JSON.stringify(w));
-        sessionStorage.setItem(LEGACY_ANALISIS, JSON.stringify(w));
     } catch {
         /* ignore */
     }
@@ -170,12 +183,13 @@ export function clearWorkflowDataForCurrentInitiative(): void {
     }
 }
 
-/** Quita la iniciativa actual del listado y su workflow; útil si se requiere reset duro. */
+/** Quita la iniciativa del listado, su workflow y borrador de entendimiento. */
 export function removeInitiative(id: string): void {
     const list = loadInitiativeRecords().filter((r) => r.id !== id);
     saveInitiativeRecords(list);
     try {
         sessionStorage.removeItem(workflowStorageKey(id));
+        sessionStorage.removeItem(`ux-agent-understanding-draft-${id}`);
     } catch {
         /* ignore */
     }

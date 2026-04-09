@@ -10,6 +10,7 @@ import {
 import {
     loadWorkflowByInitiativeId,
     migrateLegacyWorkflowIfNeeded,
+    removeInitiative,
     saveWorkflow,
     type WorkflowSession,
 } from '../lib/workflowSession';
@@ -131,6 +132,19 @@ export default function DashboardPage() {
         }
         setInitiativeCompleted(row.id, false);
         navigate('/ideacion');
+    }
+
+    function onDelete(row: RowVM) {
+        const label = row.name.trim() || 'esta iniciativa';
+        if (
+            !window.confirm(
+                `¿Eliminar «${label}»?\n\nSe borrarán el flujo y los borradores guardados en este navegador. No se puede deshacer.`
+            )
+        ) {
+            return;
+        }
+        removeInitiative(row.id);
+        refresh();
     }
 
     return (
@@ -394,6 +408,22 @@ export default function DashboardPage() {
                                                 </svg>
                                             </button>
                                         )}
+                                        <button
+                                            type="button"
+                                            onClick={() => onDelete(row)}
+                                            className="px-4 py-2 border border-red-200 text-red-700 rounded-lg font-medium hover:bg-red-50 transition-all flex items-center justify-center gap-2 ux-focus"
+                                            aria-label={`Eliminar iniciativa ${row.name}`}
+                                        >
+                                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                                />
+                                            </svg>
+                                            Eliminar
+                                        </button>
                                     </div>
                                 </div>
                             </div>

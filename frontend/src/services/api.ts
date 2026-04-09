@@ -259,6 +259,29 @@ export const api = {
             body: JSON.stringify(body),
         }) as Promise<{ success: boolean; reply: string }>,
 
+    generatePrototypeScreens: (body: {
+        initiativeName: string;
+        jiraTicket: string;
+        squad: string;
+        analysis: UnderstandingAnalysisResult;
+        solution: IdeationSolutionDto;
+        iterationMessages?: { role: 'user' | 'assistant'; text: string }[];
+    }) =>
+        fetchAPI('/api/generate-prototype-screens', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }) as Promise<{
+            success: boolean;
+            summaryLine: string;
+            screens: {
+                title: string;
+                subtitle?: string;
+                bullets?: string[];
+                note?: string;
+                cta?: string;
+            }[];
+        }>,
+
     getCards: () => fetchAPI('/api/cards') as Promise<KickoffCard[]>,
 
     getCard: (id: string) =>

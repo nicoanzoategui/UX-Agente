@@ -5,11 +5,13 @@ import { understandingUploadFields } from '../middleware/understanding-upload.js
 import {
     generateIdeationSolutions,
     generatePrototypeFlowScreens,
+    generatePrototypeIterationReply,
     generateSolutionIterationReply,
     generateSpecWithPromptC,
     generateStepEWireframeOptions,
     generateUnderstandingAnalysis,
     type IdeationSolutionDto,
+    type PrototypeScreenSpecDto,
     type UnderstandingAnalysisResult,
 } from '../services/llm.service.js';
 
@@ -137,6 +139,31 @@ function parseIdeationSolutionBody(x: unknown): IdeationSolutionDto | null {
     };
 }
 
+function parsePrototypeScreensBody(x: unknown): PrototypeScreenSpecDto[] | null {
+    if (!Array.isArray(x) || x.length !== 6) return null;
+    const out: PrototypeScreenSpecDto[] = [];
+    for (const item of x) {
+        if (!item || typeof item !== 'object') return null;
+        const o = item as Record<string, unknown>;
+        const title = typeof o.title === 'string' ? o.title.trim() : '';
+        if (!title) return null;
+        const subtitle = typeof o.subtitle === 'string' ? o.subtitle.trim() : undefined;
+        const note = typeof o.note === 'string' ? o.note.trim() : undefined;
+        const cta = typeof o.cta === 'string' ? o.cta.trim() : undefined;
+        const bullets = Array.isArray(o.bullets)
+            ? (o.bullets as unknown[]).filter((b) => typeof b === 'string').map((b) => (b as string).trim())
+            : undefined;
+        out.push({
+            title,
+            ...(subtitle ? { subtitle } : {}),
+            ...(bullets?.length ? { bullets } : {}),
+            ...(note ? { note } : {}),
+            ...(cta ? { cta } : {}),
+        });
+    }
+    return out;
+}
+
 /** POST /api/generate-ideation-solutions — 3 propuestas desde el análisis JSON. */
 router.post('/generate-ideation-solutions', async (req, res) => {
     const body = req.body as {
@@ -170,17 +197,20 @@ router.post('/generate-ideation-solutions', async (req, res) => {
 /** POST /api/iterate-solution — mensaje de chat para refinar una solución. */
 router.post('/iterate-solution', async (req, res) => {
     const body = req.body as {
-        solutionTitle?: string;
+        solution?: unknown;
         initiativeName?: string;
         analysis?: unknown;
         history?: unknown;
         userMessage?: string;
     };
-    const solutionTitle = String(body.solutionTitle ?? '').trim();
     const initiativeName = String(body.initiativeName ?? '').trim();
     const userMessage = String(body.userMessage ?? '').trim();
-    if (!solutionTitle || !initiativeName || !userMessage) {
-        return res.status(400).json({ error: 'solutionTitle, initiativeName y userMessage son obligatorios.' });
+    if (!initiativeName || !userMessage) {
+        return res.status(400).json({ error: 'initiativeName y userMessage son obligatorios.' });
+    }
+    const solution = parseIdeationSolutionBody(body.solution);
+    if (!solution) {
+        return res.status(400).json({ error: 'solution inválida (objeto completo con title y flowSteps).' });
     }
     if (!isUnderstandingAnalysis(body.analysis)) {
         return res.status(400).json({ error: 'analysis inválido.' });
@@ -195,17 +225,68 @@ router.post('/iterate-solution', async (req, res) => {
         if (role && text) history.push({ role, text });
     }
     try {
-        const reply = await generateSolutionIterationReply({
-            solutionTitle,
+        const { reply, refinedSolution } = await generateSolutionIterationReply({
+            solution,
             initiativeName,
             analysis: body.analysis,
             history,
             userMessage,
         });
-        res.json({ success: true, reply });
+        res.json({ success: true, reply, refinedSolution });
     } catch (error) {
         console.error('Error en iterate-solution:', error);
         const msg = (error as Error)?.message || 'Error en la iteración';
+        res.status(500).json({ error: msg });
+    }
+});
+
+/** POST /api/iterate-prototype — chat para refinar el prototipo antes de regenerar pantallas. */
+router.post('/iterate-prototype', async (req, res) => {
+    const body = req.body as {
+        initiativeName?: string;
+        analysis?: unknown;
+        solution?: unknown;
+        screens?: unknown;
+        history?: unknown;
+        userMessage?: string;
+    };
+    const initiativeName = String(body.initiativeName ?? '').trim();
+    const userMessage = String(body.userMessage ?? '').trim();
+    if (!initiativeName || !userMessage) {
+        return res.status(400).json({ error: 'initiativeName y userMessage son obligatorios.' });
+    }
+    if (!isUnderstandingAnalysis(body.analysis)) {
+        return res.status(400).json({ error: 'analysis inválido.' });
+    }
+    const solution = parseIdeationSolutionBody(body.solution);
+    if (!solution) {
+        return res.status(400).json({ error: 'solution inválida.' });
+    }
+    const screens = parsePrototypeScreensBody(body.screens);
+    if (!screens) {
+        return res.status(400).json({ error: 'screens debe ser un array de exactamente 6 pantallas.' });
+    }
+    const histRaw = Array.isArray(body.history) ? body.history : [];
+    const history: { role: 'user' | 'assistant'; text: string }[] = [];
+    for (const h of histRaw) {
+        if (!h || typeof h !== 'object') continue;
+        const o = h as Record<string, unknown>;
+        const role = o.role === 'assistant' ? 'assistant' : o.role === 'user' ? 'user' : null;
+        const text = typeof o.text === 'string' ? o.text.trim() : '';
+        if (role && text) history.push({ role, text });
+    }
+    try {
+        const reply = await generatePrototypeIterationReply({
+            initiativeName,
+            solution,
+            screens,
+            history,
+            userMessage,
+        });
+        res.json({ success: true, reply });
+    } catch (error) {
+        console.error('Error en iterate-prototype:', error);
+        const msg = (error as Error)?.message || 'Error en la iteración del prototipo';
         res.status(500).json({ error: msg });
     }
 });
@@ -219,6 +300,8 @@ router.post('/generate-prototype-screens', async (req, res) => {
         analysis?: unknown;
         solution?: unknown;
         iterationMessages?: unknown;
+        existingScreens?: unknown;
+        prototypeIterationMessages?: unknown;
     };
     const initiativeName = String(body.initiativeName ?? '').trim();
     if (!initiativeName) {
@@ -240,6 +323,16 @@ router.post('/generate-prototype-screens', async (req, res) => {
         const text = typeof o.text === 'string' ? o.text.trim() : '';
         if (role && text) iterationMessages.push({ role, text });
     }
+    const existingScreens = parsePrototypeScreensBody(body.existingScreens);
+    const protoRaw = Array.isArray(body.prototypeIterationMessages) ? body.prototypeIterationMessages : [];
+    const prototypeIterationMessages: { role: 'user' | 'assistant'; text: string }[] = [];
+    for (const m of protoRaw) {
+        if (!m || typeof m !== 'object') continue;
+        const o = m as Record<string, unknown>;
+        const role = o.role === 'assistant' ? 'assistant' : o.role === 'user' ? 'user' : null;
+        const text = typeof o.text === 'string' ? o.text.trim() : '';
+        if (role && text) prototypeIterationMessages.push({ role, text });
+    }
     try {
         const result = await generatePrototypeFlowScreens({
             initiativeName,
@@ -248,6 +341,8 @@ router.post('/generate-prototype-screens', async (req, res) => {
             analysis: body.analysis,
             solution,
             iterationMessages,
+            ...(existingScreens ? { existingScreens } : {}),
+            ...(prototypeIterationMessages.length ? { prototypeIterationMessages } : {}),
         });
         res.json({ success: true, ...result });
     } catch (error) {

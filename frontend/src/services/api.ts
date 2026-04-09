@@ -248,13 +248,36 @@ export const api = {
         }) as Promise<{ success: boolean; solutions: IdeationSolutionDto[] }>,
 
     iterateSolution: (body: {
-        solutionTitle: string;
+        solution: IdeationSolutionDto;
         initiativeName: string;
         analysis: UnderstandingAnalysisResult;
         history: { role: 'user' | 'assistant'; text: string }[];
         userMessage: string;
     }) =>
         fetchAPI('/api/iterate-solution', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }) as Promise<{
+            success: boolean;
+            reply: string;
+            refinedSolution?: IdeationSolutionDto;
+        }>,
+
+    iteratePrototype: (body: {
+        initiativeName: string;
+        analysis: UnderstandingAnalysisResult;
+        solution: IdeationSolutionDto;
+        screens: {
+            title: string;
+            subtitle?: string;
+            bullets?: string[];
+            note?: string;
+            cta?: string;
+        }[];
+        history: { role: 'user' | 'assistant'; text: string }[];
+        userMessage: string;
+    }) =>
+        fetchAPI('/api/iterate-prototype', {
             method: 'POST',
             body: JSON.stringify(body),
         }) as Promise<{ success: boolean; reply: string }>,
@@ -266,6 +289,14 @@ export const api = {
         analysis: UnderstandingAnalysisResult;
         solution: IdeationSolutionDto;
         iterationMessages?: { role: 'user' | 'assistant'; text: string }[];
+        existingScreens?: {
+            title: string;
+            subtitle?: string;
+            bullets?: string[];
+            note?: string;
+            cta?: string;
+        }[];
+        prototypeIterationMessages?: { role: 'user' | 'assistant'; text: string }[];
     }) =>
         fetchAPI('/api/generate-prototype-screens', {
             method: 'POST',
@@ -273,6 +304,8 @@ export const api = {
         }) as Promise<{
             success: boolean;
             summaryLine: string;
+            estimatedTimeLabel?: string;
+            flowType?: string;
             screens: {
                 title: string;
                 subtitle?: string;

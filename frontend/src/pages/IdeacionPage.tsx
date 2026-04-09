@@ -3,23 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import ProgressBar from '../components/platform/ProgressBar';
 import { useToast } from '../context/ToastContext';
 import {
+    buildPrototypeMetaFromGenerateResponse,
     loadWorkflow,
     patchWorkflow,
     type IdeationSolution,
-    type PrototypeMeta,
     type WorkflowSession,
 } from '../lib/workflowSession';
 import { api, ApiError } from '../services/api';
-
-function buildPrototypeMeta(solution: IdeationSolution): PrototypeMeta {
-    const short = solution.title.replace(/^Solución\s*\d+\s*:\s*/i, '').trim() || solution.title;
-    return {
-        screenCount: 6,
-        estimatedTimeLabel: '~2min',
-        flowType: 'Lineal',
-        summaryLine: `${short} • 6 pantallas • Flujo lineal`,
-    };
-}
 
 function IconRefresh() {
     return (
@@ -169,7 +159,7 @@ export default function IdeacionPage() {
         setOverlayMode('prototype');
         setError(null);
         try {
-            const { summaryLine, screens } = await api.generatePrototypeScreens({
+            const { summaryLine, screens, estimatedTimeLabel, flowType } = await api.generatePrototypeScreens({
                 initiativeName: wf.initiativeName,
                 jiraTicket: wf.jiraTicket,
                 squad: wf.squad,
@@ -177,13 +167,14 @@ export default function IdeacionPage() {
                 solution,
                 iterationMessages: [],
             });
-            const base = buildPrototypeMeta(solution);
             patchWorkflow({
                 selectedSolutionIndex: index,
-                prototypeMeta: {
-                    ...base,
-                    summaryLine: summaryLine || base.summaryLine,
-                },
+                prototypeMeta: buildPrototypeMetaFromGenerateResponse(solution, {
+                    summaryLine,
+                    screens,
+                    estimatedTimeLabel,
+                    flowType,
+                }),
                 prototypeScreens: screens,
             });
             navigate('/prototipado');

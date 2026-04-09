@@ -72,3 +72,41 @@ export function buildIterationUserPrompt(ctx: {
         ctx.userMessage,
     ].join('\n');
 }
+
+/** Iteración con solución estructurada actualizada para la UI (JSON). */
+export const SOLUTION_ITERATION_JSON_SYSTEM = `Sos el UX Agent. Ayudás a iterar una propuesta de solución UX en español.
+
+Reglas:
+- Salida: SOLO JSON válido, sin markdown. Raíz: { "assistantMessage": string, "refinedSolution": object }.
+- assistantMessage: texto breve (2–6 oraciones o viñetas) explicando los cambios o la respuesta al usuario.
+- refinedSolution: objeto completo actualizado con: title (string), recommendedByAi (boolean), flowSteps (array de strings, mínimo 3), howItSolves (array de strings, mínimo 1), expectedImpact (array de strings, mínimo 1).
+- refinedSolution debe incorporar el pedido del usuario y el historial; mantené el prefijo "Solución 1:", "Solución 2:" o "Solución 3:" en title si la solución actual lo tenía.
+- Si el usuario solo hace una pregunta sin pedir cambios estructurales, devolvé refinedSolution igual a la solución actual salvo ajustes mínimos de redacción si aportan claridad.
+- No inventés cifras exactas de negocio; impacto cualitativo está bien.`;
+
+export function buildIterationJsonUserPrompt(ctx: {
+    initiativeName: string;
+    analysisJson: string;
+    solutionJson: string;
+    conversationSnippet: string;
+    userMessage: string;
+}): string {
+    return [
+        '## Iniciativa',
+        ctx.initiativeName,
+        '',
+        '## Análisis de contexto (JSON)',
+        ctx.analysisJson.slice(0, 12_000),
+        '',
+        '## Solución actual que se itera (JSON completo)',
+        ctx.solutionJson.slice(0, 8000),
+        '',
+        '## Historial reciente (últimos turnos)',
+        ctx.conversationSnippet || '(inicio de conversación)',
+        '',
+        '## Mensaje del usuario',
+        ctx.userMessage,
+        '',
+        'Respondé con JSON según el system prompt (assistantMessage + refinedSolution).',
+    ].join('\n');
+}

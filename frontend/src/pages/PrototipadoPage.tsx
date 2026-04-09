@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import ProgressBar from '../components/platform/ProgressBar';
 import { PROTOTYPE_SCREEN_COUNT, PrototypeScreen } from '../components/platform/prototype/PrototypeScreens';
-import { useToast } from '../context/ToastContext';
 import { loadWorkflow } from '../lib/workflowSession';
 
 export default function PrototipadoPage() {
-    const toast = useToast();
+    const navigate = useNavigate();
     const [screen, setScreen] = useState(0);
     const wf = loadWorkflow();
 
@@ -23,9 +22,15 @@ export default function PrototipadoPage() {
 
     const brand = wf.initiativeName.trim() || 'FinanceApp';
     const meta = wf.prototypeMeta;
+    const screenCount =
+        wf.prototypeScreens?.length === PROTOTYPE_SCREEN_COUNT ? PROTOTYPE_SCREEN_COUNT : PROTOTYPE_SCREEN_COUNT;
+
+    useEffect(() => {
+        setScreen((s) => Math.min(s, Math.max(0, screenCount - 1)));
+    }, [screenCount]);
 
     function next() {
-        setScreen((s) => Math.min(s + 1, PROTOTYPE_SCREEN_COUNT - 1));
+        setScreen((s) => Math.min(s + 1, screenCount - 1));
     }
     function prev() {
         setScreen((s) => Math.max(s - 1, 0));
@@ -91,7 +96,7 @@ export default function PrototipadoPage() {
                         <div className="flex items-center justify-between max-w-md mx-auto">
                             <div className="flex items-center space-x-2">
                                 <span className="text-sm">
-                                    Pantalla <span>{screen + 1}</span> de {PROTOTYPE_SCREEN_COUNT}
+                                    Pantalla <span>{screen + 1}</span> de {screenCount}
                                 </span>
                             </div>
                             <div className="flex space-x-2">
@@ -116,7 +121,9 @@ export default function PrototipadoPage() {
 
                 <div className="grid grid-cols-3 gap-4 mb-6">
                     <div className="bg-gray-50 p-4 rounded-lg text-center">
-                        <p className="text-2xl font-bold text-gray-900">{meta.screenCount}</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                            {meta.screenCount ?? wf.prototypeScreens?.length ?? screenCount}
+                        </p>
                         <p className="text-sm text-gray-600">Pantallas</p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded-lg text-center">
@@ -138,12 +145,7 @@ export default function PrototipadoPage() {
                     </Link>
                     <button
                         type="button"
-                        onClick={() =>
-                            toast(
-                                'La iteración guiada del prototipo estará disponible en una próxima versión.',
-                                'success'
-                            )
-                        }
+                        onClick={() => navigate('/prototipado/iterar')}
                         className="px-6 py-3 border border-purple-600 text-purple-600 rounded-lg font-semibold hover:bg-purple-50 transition-all ux-focus"
                     >
                         ✨ Iterar prototipo

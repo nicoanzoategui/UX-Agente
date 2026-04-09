@@ -25,6 +25,32 @@ export type PrototypeScreenSpec = {
     cta?: string;
 };
 
+/** Arma meta de prototipo a partir de la respuesta de generate-prototype-screens y la solución elegida. */
+export function buildPrototypeMetaFromGenerateResponse(
+    solution: IdeationSolution,
+    result: {
+        summaryLine: string;
+        screens: PrototypeScreenSpec[];
+        estimatedTimeLabel?: string;
+        flowType?: string;
+    }
+): PrototypeMeta {
+    const n = result.screens.length;
+    const short = solution.title.replace(/^Solución\s*\d+\s*:\s*/i, '').trim() || solution.title;
+    const estimated =
+        (result.estimatedTimeLabel && result.estimatedTimeLabel.trim()) ||
+        `~${Math.max(1, Math.round(n * 0.35))} min`;
+    const flow = (result.flowType && result.flowType.trim()) || 'Lineal';
+    return {
+        screenCount: n,
+        estimatedTimeLabel: estimated,
+        flowType: flow,
+        summaryLine:
+            (result.summaryLine && result.summaryLine.trim()) ||
+            `${short} • ${n} pantalla${n === 1 ? '' : 's'} • ${flow}`,
+    };
+}
+
 export type WorkflowSession = {
     initiativeName: string;
     jiraTicket: string;

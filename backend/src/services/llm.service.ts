@@ -24,8 +24,15 @@ import {
     buildIdeationUserPrompt,
     SOLUTION_ITERATION_SYSTEM,
     buildIterationUserPrompt,
+    SOLUTION_ITERATION_JSON_SYSTEM,
+    buildIterationJsonUserPrompt,
 } from '../prompts/ideation-prompts.js';
-import { PROTOTYPE_FLOW_SYSTEM, buildPrototypeFlowUserPrompt } from '../prompts/prototype-flow-prompts.js';
+import {
+    PROTOTYPE_FLOW_SYSTEM,
+    buildPrototypeFlowUserPrompt,
+    PROTOTYPE_ITERATION_SYSTEM,
+    buildPrototypeIterationUserPrompt,
+} from '../prompts/prototype-flow-prompts.js';
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || '');
 
@@ -708,29 +715,98 @@ export async function generateIdeationSolutions(input: {
     return parseIdeationSolutionsJson(raw);
 }
 
+function parseRefinedIdeationSolution(o: unknown): IdeationSolutionDto | null {
+    if (!o || typeof o !== 'object') return null;
+    const rec = o as Record<string, unknown>;
+    const title = typeof rec.title === 'string' ? rec.title.trim() : '';
+    const flowSteps = Array.isArray(rec.flowSteps)
+        ? (rec.flowSteps as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    if (!title || flowSteps.length < 3) return null;
+    const howItSolves = Array.isArray(rec.howItSolves)
+        ? (rec.howItSolves as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    const expectedImpact = Array.isArray(rec.expectedImpact)
+        ? (rec.expectedImpact as unknown[]).filter((s) => typeof s === 'string').map((s) => (s as string).trim())
+        : [];
+    return {
+        title,
+        recommendedByAi: rec.recommendedByAi === true,
+        flowSteps,
+        howItSolves: howItSolves.length ? howItSolves : ['—'],
+        expectedImpact: expectedImpact.length ? expectedImpact : ['—'],
+    };
+}
+
+function parseSolutionIterationJsonResponse(raw: string): { reply: string; refinedSolution?: IdeationSolutionDto } {
+    let t = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+        return { reply: raw.trim() || 'Sin respuesta del modelo.', refinedSolution: undefined };
+    }
+    t = t.slice(start, end + 1);
+    let parsed: { assistantMessage?: unknown; refinedSolution?: unknown };
+    try {
+        parsed = JSON.parse(t) as { assistantMessage?: unknown; refinedSolution?: unknown };
+    } catch {
+        return { reply: raw.trim() || 'No se pudo interpretar la respuesta.', refinedSolution: undefined };
+    }
+    const assistantMessage =
+        typeof parsed.assistantMessage === 'string' ? parsed.assistantMessage.trim() : '';
+    const refined = parseRefinedIdeationSolution(parsed.refinedSolution);
+    return {
+        reply: assistantMessage || 'Listo, actualicé la propuesta según tu mensaje.',
+        refinedSolution: refined ?? undefined,
+    };
+}
+
 export async function generateSolutionIterationReply(input: {
-    solutionTitle: string;
+    solution: IdeationSolutionDto;
     initiativeName: string;
     analysis: UnderstandingAnalysisResult;
     history: { role: 'user' | 'assistant'; text: string }[];
     userMessage: string;
-}): Promise<string> {
-    const analysisSummary = JSON.stringify(input.analysis);
+}): Promise<{ reply: string; refinedSolution?: IdeationSolutionDto }> {
     const conversationSnippet = input.history
         .slice(-10)
         .map((h) => `${h.role === 'user' ? 'Usuario' : 'Agente'}: ${h.text}`)
         .join('\n');
-    const user = buildIterationUserPrompt({
-        solutionTitle: input.solutionTitle,
+    const user = buildIterationJsonUserPrompt({
+        initiativeName: input.initiativeName,
+        analysisJson: JSON.stringify(input.analysis),
+        solutionJson: JSON.stringify(input.solution),
+        conversationSnippet,
+        userMessage: input.userMessage.trim(),
+    });
+    let raw: string;
+    try {
+        raw = await generateTextWithRetries(SOLUTION_ITERATION_JSON_SYSTEM, user, 0.45, {
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+        });
+    } catch (e) {
+        console.warn('Iteración solución: reintentando sin responseMimeType JSON:', (e as Error)?.message ?? e);
+        raw = await generateTextWithRetries(SOLUTION_ITERATION_JSON_SYSTEM, user, 0.45, {
+            maxOutputTokens: 8192,
+        });
+    }
+    const parsed = parseSolutionIterationJsonResponse(raw);
+    if (parsed.refinedSolution) {
+        return parsed;
+    }
+    const analysisSummary = JSON.stringify(input.analysis);
+    const fallbackUser = buildIterationUserPrompt({
+        solutionTitle: input.solution.title,
         initiativeName: input.initiativeName,
         analysisSummary,
         conversationSnippet,
         userMessage: input.userMessage.trim(),
     });
-    const reply = await generateTextWithRetries(SOLUTION_ITERATION_SYSTEM, user, 0.55, {
+    const plain = await generateTextWithRetries(SOLUTION_ITERATION_SYSTEM, fallbackUser, 0.55, {
         maxOutputTokens: 4096,
     });
-    return reply.trim();
+    return { reply: plain.trim(), refinedSolution: undefined };
 }
 
 export type PrototypeScreenSpecDto = {
@@ -744,6 +820,8 @@ export type PrototypeScreenSpecDto = {
 export type PrototypeFlowResultDto = {
     summaryLine: string;
     screens: PrototypeScreenSpecDto[];
+    estimatedTimeLabel: string;
+    flowType: string;
 };
 
 function parsePrototypeFlowJson(raw: string): PrototypeFlowResultDto {
@@ -754,9 +832,19 @@ function parsePrototypeFlowJson(raw: string): PrototypeFlowResultDto {
         throw new Error('La respuesta no contiene JSON del prototipo.');
     }
     t = t.slice(start, end + 1);
-    let parsed: { summaryLine?: unknown; screens?: unknown };
+    let parsed: {
+        summaryLine?: unknown;
+        estimatedTimeLabel?: unknown;
+        flowType?: unknown;
+        screens?: unknown;
+    };
     try {
-        parsed = JSON.parse(t) as { summaryLine?: unknown; screens?: unknown };
+        parsed = JSON.parse(t) as {
+            summaryLine?: unknown;
+            estimatedTimeLabel?: unknown;
+            flowType?: unknown;
+            screens?: unknown;
+        };
     } catch {
         throw new Error('No se pudo parsear el JSON del prototipo.');
     }
@@ -789,9 +877,21 @@ function parsePrototypeFlowJson(raw: string): PrototypeFlowResultDto {
             ...(cta ? { cta } : {}),
         });
     }
+    const n = screens.length;
+    let estimatedTimeLabel =
+        typeof parsed.estimatedTimeLabel === 'string' ? parsed.estimatedTimeLabel.trim().slice(0, 32) : '';
+    let flowType = typeof parsed.flowType === 'string' ? parsed.flowType.trim().slice(0, 48) : '';
+    if (!estimatedTimeLabel) {
+        estimatedTimeLabel = `~${Math.max(1, Math.round(n * 0.35))} min`;
+    }
+    if (!flowType) {
+        flowType = 'Lineal';
+    }
     return {
         summaryLine: summaryLine || 'Flujo prototipado en 6 pasos',
         screens,
+        estimatedTimeLabel,
+        flowType,
     };
 }
 
@@ -802,6 +902,8 @@ export async function generatePrototypeFlowScreens(input: {
     analysis: UnderstandingAnalysisResult;
     solution: IdeationSolutionDto;
     iterationMessages?: { role: 'user' | 'assistant'; text: string }[];
+    existingScreens?: PrototypeScreenSpecDto[];
+    prototypeIterationMessages?: { role: 'user' | 'assistant'; text: string }[];
 }): Promise<PrototypeFlowResultDto> {
     const lines: string[] = [];
     for (const m of input.iterationMessages ?? []) {
@@ -811,6 +913,19 @@ export async function generatePrototypeFlowScreens(input: {
     }
     const iterationTranscript = lines.join('\n\n').slice(0, 16_000);
 
+    const protoLines: string[] = [];
+    for (const m of input.prototypeIterationMessages ?? []) {
+        if (!m?.text?.trim()) continue;
+        const who = m.role === 'assistant' ? 'Agente' : 'Usuario';
+        protoLines.push(`${who}: ${m.text.trim()}`);
+    }
+    const prototypeIterationTranscript = protoLines.join('\n\n').slice(0, 16_000);
+
+    const existingScreensJson =
+        input.existingScreens && input.existingScreens.length === 6
+            ? JSON.stringify(input.existingScreens).slice(0, 24_000)
+            : undefined;
+
     const user = buildPrototypeFlowUserPrompt({
         initiativeName: input.initiativeName,
         jiraTicket: input.jiraTicket,
@@ -818,6 +933,8 @@ export async function generatePrototypeFlowScreens(input: {
         analysisJson: JSON.stringify(input.analysis),
         solutionJson: JSON.stringify(input.solution),
         iterationTranscript,
+        existingScreensJson,
+        prototypeIterationTranscript: prototypeIterationTranscript || undefined,
     });
 
     let raw: string;
@@ -833,4 +950,31 @@ export async function generatePrototypeFlowScreens(input: {
         });
     }
     return parsePrototypeFlowJson(raw);
+}
+
+export async function generatePrototypeIterationReply(input: {
+    initiativeName: string;
+    solution: IdeationSolutionDto;
+    screens: PrototypeScreenSpecDto[];
+    history: { role: 'user' | 'assistant'; text: string }[];
+    userMessage: string;
+}): Promise<string> {
+    if (!Array.isArray(input.screens) || input.screens.length !== 6) {
+        throw new Error('Se requieren exactamente 6 pantallas del prototipo.');
+    }
+    const conversationSnippet = input.history
+        .slice(-10)
+        .map((h) => `${h.role === 'user' ? 'Usuario' : 'Agente'}: ${h.text}`)
+        .join('\n');
+    const user = buildPrototypeIterationUserPrompt({
+        initiativeName: input.initiativeName,
+        solutionJson: JSON.stringify(input.solution),
+        screensJson: JSON.stringify(input.screens),
+        conversationSnippet,
+        userMessage: input.userMessage.trim(),
+    });
+    const reply = await generateTextWithRetries(PROTOTYPE_ITERATION_SYSTEM, user, 0.55, {
+        maxOutputTokens: 4096,
+    });
+    return reply.trim();
 }

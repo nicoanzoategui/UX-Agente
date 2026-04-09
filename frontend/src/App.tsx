@@ -12,6 +12,7 @@ import UxAgentAnalysisPage from './pages/UxAgentAnalysisPage';
 import IdeacionPage from './pages/IdeacionPage';
 import SolutionIterationPage from './pages/SolutionIterationPage';
 import PrototipadoPage from './pages/PrototipadoPage';
+import PrototypeIterationPage from './pages/PrototypeIterationPage';
 import HandoffPage from './pages/HandoffPage';
 import ProjectSummaryPage from './pages/ProjectSummaryPage';
 
@@ -62,6 +63,7 @@ function AppRoutes() {
                         <Route path="ideacion" element={<IdeacionPage />} />
                         <Route path="ideacion/iterar/:solutionIndex" element={<SolutionIterationPage />} />
                         <Route path="prototipado" element={<PrototipadoPage />} />
+                        <Route path="prototipado/iterar" element={<PrototypeIterationPage />} />
                         <Route path="handoff" element={<HandoffPage />} />
                         <Route path="resumen" element={<ProjectSummaryPage />} />
                     </Route>

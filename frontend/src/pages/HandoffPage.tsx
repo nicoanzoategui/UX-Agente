@@ -57,6 +57,7 @@ export default function HandoffPage() {
     if (!wf.tsxMuiApproved) {
         if (!wf.userFlowApproved) return <Navigate to="/user-flow" replace />;
         if (!wf.hifiWireframesApproved) return <Navigate to="/wireframes-hifi" replace />;
+        if (!wf.figmaApproved) return <Navigate to="/figma" replace />;
         return <Navigate to="/codigo-mui" replace />;
     }
 
@@ -85,8 +86,10 @@ export default function HandoffPage() {
             toast('No hay análisis en sesión.', 'error');
             return;
         }
-        const tsx = w.tsxMuiScreens?.filter((x) => x.trim()) ?? [];
-        if (tsx.length === 0) {
+        const tsxFinal = w.tsxFinalScreens?.filter((x) => x.trim()) ?? [];
+        const tsxLegacy = w.tsxMuiScreens?.filter((x) => x.trim()) ?? [];
+        const tsxForZip = tsxFinal.length > 0 ? tsxFinal : tsxLegacy;
+        if (tsxForZip.length === 0) {
             toast('No hay código TSX generado para armar el handoff.', 'error');
             return;
         }
@@ -101,7 +104,11 @@ export default function HandoffPage() {
                 analysis: w.analysis,
                 userFlowSvg: w.userFlowSvg ?? '',
                 hifiWireframesHtml: w.hifiWireframesHtml ?? [],
-                tsxMuiScreens: tsx,
+                tsxFinalScreens: tsxFinal.length > 0 ? tsxFinal : undefined,
+                tsxMuiScreens: tsxFinal.length > 0 ? undefined : tsxLegacy.length > 0 ? tsxLegacy : undefined,
+                tsxSource: tsxFinal.length > 0 ? 'figma' : 'wireframes',
+                figmaFileUrl: w.figmaFileUrl,
+                figmaScreensMeta: w.figmaScreensMeta,
                 flowStepLabels,
             });
             toast('Paquete handoff descargado.', 'success');
@@ -132,12 +139,12 @@ export default function HandoffPage() {
 
     return (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-            <ProgressBar currentStep={6} />
+            <ProgressBar currentStep={7} />
 
             <div className="bg-white rounded-lg shadow-sm p-8 fade-in">
                 <div className="mb-6">
                     <div className="flex items-center justify-between mb-4">
-                        <h1 className="text-3xl font-bold text-gray-900">6. Handoff colaborativo</h1>
+                        <h1 className="text-3xl font-bold text-gray-900">7. Handoff colaborativo</h1>
                         <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
                             ✓ Documentación generada
                         </span>
@@ -145,13 +152,51 @@ export default function HandoffPage() {
                     <p className="text-gray-600">El UX Agent ha creado la documentación completa en Confluence</p>
                 </div>
 
+                {(wf.figmaFileUrl || (wf.figmaScreensMeta && wf.figmaScreensMeta.length > 0)) && (
+                    <div className="mb-6 border border-indigo-200 bg-indigo-50 rounded-lg p-5">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Fuente de diseño final: Figma</h3>
+                        {wf.figmaFileUrl ? (
+                            <p className="text-sm text-gray-700 mb-2">
+                                Archivo:{' '}
+                                <a
+                                    href={wf.figmaFileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-purple-700 underline font-medium"
+                                >
+                                    Abrir en Figma
+                                </a>
+                            </p>
+                        ) : null}
+                        {wf.figmaScreensMeta && wf.figmaScreensMeta.length > 0 ? (
+                            <div className="text-sm text-gray-700">
+                                <p className="font-medium text-gray-800 mb-1">Pantallas (nodeId)</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                    {wf.figmaScreensMeta.map((s) => (
+                                        <li key={`${s.screenIndex}-${s.nodeId}`}>
+                                            {s.screenIndex}. {s.name}{' '}
+                                            <span className="text-gray-500 font-mono text-xs">{s.nodeId}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        <p className="text-xs text-gray-600 mt-2">
+                            El ZIP incluye <code className="bg-white/80 px-1 rounded">figma-metadata.json</code> cuando hay
+                            datos de Figma.
+                        </p>
+                    </div>
+                )}
+
                 <div className="mb-6 rounded-xl border-2 border-purple-500 bg-gradient-to-br from-purple-600 to-indigo-700 p-6 text-white shadow-lg">
                     <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                         <div>
                             <h2 className="text-xl font-bold mb-1">Descargar Handoff para el Dev</h2>
                             <p className="text-sm text-purple-100 max-w-xl">
-                                ZIP listo con README, tema MUI, rutas React Router, carpeta <code className="text-xs bg-white/15 px-1 rounded">screens/</code>,{' '}
-                                <code className="text-xs bg-white/15 px-1 rounded">api/endpoints.ts</code> y el user flow en SVG.
+                                ZIP listo con README, tema MUI, rutas React Router, carpeta{' '}
+                                <code className="text-xs bg-white/15 px-1 rounded">screens/</code>,{' '}
+                                <code className="text-xs bg-white/15 px-1 rounded">api/endpoints.ts</code>, user flow en SVG
+                                y, si aplica, <code className="text-xs bg-white/15 px-1 rounded">figma-metadata.json</code>.
                             </p>
                         </div>
                         <button
@@ -385,7 +430,11 @@ export default function HandoffPage() {
                         <HandoffComponentsTab
                             howItSolves={sol.howItSolves}
                             opportunities={opportunities}
-                            tsxMuiScreens={wf.tsxMuiScreens}
+                            tsxMuiScreens={
+                                wf.tsxFinalScreens && wf.tsxFinalScreens.length > 0
+                                    ? wf.tsxFinalScreens
+                                    : wf.tsxMuiScreens
+                            }
                             flowStepLabels={sol.flowSteps}
                         />
                     )}

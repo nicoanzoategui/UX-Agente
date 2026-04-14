@@ -5,6 +5,7 @@ export type WorkflowPhaseLabel =
     | 'Ideación'
     | 'User flow'
     | 'Wireframes hi-fi'
+    | 'Figma'
     | 'Código TSX'
     | 'Handoff';
 
@@ -18,7 +19,7 @@ const FLOW_READY = (w: WorkflowSession) =>
     w.selectedSolutionIndex != null && Boolean(w.ideationSolutions && w.ideationSolutions.length > 0);
 
 /**
- * Orden: entendimiento → ideación → user flow → wireframes HiFi → código TSX → handoff → resumen.
+ * Orden: entendimiento → ideación → user flow → wireframes HiFi → Figma → código TSX → handoff → resumen.
  */
 export function getWorkflowPhaseInfo(w: WorkflowSession | null): WorkflowPhaseInfo {
     if (!w) {
@@ -34,10 +35,13 @@ export function getWorkflowPhaseInfo(w: WorkflowSession | null): WorkflowPhaseIn
             return { currentStep: 'User flow', progress: 40, continuePath: '/user-flow' };
         }
         if (!w.hifiWireframesApproved) {
-            return { currentStep: 'Wireframes hi-fi', progress: 55, continuePath: '/wireframes-hifi' };
+            return { currentStep: 'Wireframes hi-fi', progress: 50, continuePath: '/wireframes-hifi' };
+        }
+        if (!w.figmaApproved) {
+            return { currentStep: 'Figma', progress: 64, continuePath: '/figma' };
         }
         if (!w.tsxMuiApproved) {
-            return { currentStep: 'Código TSX', progress: 72, continuePath: '/codigo-mui' };
+            return { currentStep: 'Código TSX', progress: 78, continuePath: '/codigo-mui' };
         }
         if (w.handoffVisited) {
             return { currentStep: 'Handoff', progress: 90, continuePath: '/handoff' };

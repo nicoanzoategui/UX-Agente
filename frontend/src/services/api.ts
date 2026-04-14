@@ -194,6 +194,17 @@ export type IdeationSolutionDto = {
     expectedImpact: string[];
 };
 
+export type FigmaScreenMetaDto = {
+    screenIndex: number;
+    nodeId: string;
+    name: string;
+};
+
+export type FigmaOrchestrationErrorDto = {
+    screenIndex: number;
+    message: string;
+};
+
 export const api = {
     getMe: async (): Promise<{ user: AuthUser | null }> => {
         try {
@@ -366,6 +377,43 @@ export const api = {
             body: JSON.stringify(body),
         }) as Promise<{ success: boolean; raw: string }>,
 
+    generateFigmaFromWireframes: (body: {
+        initiativeName: string;
+        analysis: UnderstandingAnalysisResult;
+        solution: IdeationSolutionDto;
+        hifiWireframesHtml: string[];
+        designSystemUrl: string;
+        destinationUrl: string;
+    }) =>
+        fetchAPI('/api/generate-figma-from-wireframes', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }) as Promise<{
+            success: boolean;
+            figmaFileUrl: string;
+            figmaFileKey: string | null;
+            screens: FigmaScreenMetaDto[];
+            logs: string[];
+            errors: FigmaOrchestrationErrorDto[];
+            figmaApiUsed: boolean;
+        }>,
+
+    generateTsxFromFigma: (body: {
+        initiativeName: string;
+        jiraTicket: string;
+        squad: string;
+        analysis: UnderstandingAnalysisResult;
+        solution: IdeationSolutionDto;
+        figmaFileUrl: string;
+        figmaScreensMeta: FigmaScreenMetaDto[];
+        hifiWireframesHtml: string[];
+        feedback?: string;
+    }) =>
+        fetchAPI('/api/generate-tsx-from-figma', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }) as Promise<{ success: boolean; tsxFinalScreens: string[] }>,
+
     generateTsxMuiScreens: (body: {
         initiativeName: string;
         jiraTicket: string;
@@ -386,7 +434,11 @@ export const api = {
         analysis: UnderstandingAnalysisResult;
         userFlowSvg: string;
         hifiWireframesHtml: string[];
-        tsxMuiScreens: string[];
+        tsxMuiScreens?: string[];
+        tsxFinalScreens?: string[];
+        tsxSource?: 'figma' | 'wireframes';
+        figmaFileUrl?: string;
+        figmaScreensMeta?: FigmaScreenMetaDto[];
         flowStepLabels: string[];
     }): Promise<void> => {
         const response = await fetchWithNetworkHelp(`${API_URL}/api/generate-handoff-zip`, {

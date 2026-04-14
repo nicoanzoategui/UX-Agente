@@ -24,7 +24,7 @@ export default function ProjectSummaryPage() {
 
     return (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-            <ProgressBar currentStep={6} />
+            <ProgressBar currentStep={7} />
 
             <div className="bg-white rounded-lg shadow-sm p-8 fade-in">
                 <div className="text-center mb-8">
@@ -49,8 +49,9 @@ export default function ProjectSummaryPage() {
                             { n: 2, t: 'Ideación', d: '3 propuestas de solución generadas con impacto estimado' },
                             { n: 3, t: 'User flow', d: 'Diagrama SVG de pantallas y transiciones' },
                             { n: 4, t: 'Wireframes HiFi', d: 'HTML desktop estilo MUI v5 (referencia visual)' },
-                            { n: 5, t: 'Código TSX', d: 'Componentes React + MUI v5 por pantalla' },
-                            { n: 6, t: 'Handoff', d: 'Documentación y entregables para desarrollo' },
+                            { n: 5, t: 'Figma', d: 'Metadata y frames enlazados al design system (API REST si hay token)' },
+                            { n: 6, t: 'Código TSX final', d: 'React + MUI v5 desde Figma, con fallback desde HiFi' },
+                            { n: 7, t: 'Handoff', d: 'ZIP, documentación y entregables para desarrollo' },
                         ].map((row) => (
                             <div key={row.n} className="flex items-center">
                                 <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold mr-4 shrink-0">

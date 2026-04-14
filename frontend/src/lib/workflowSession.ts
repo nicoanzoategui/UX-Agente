@@ -70,7 +70,20 @@ export type WorkflowSession = {
     /** HTML HiFi por pantalla (mismo orden que el prototipo). */
     hifiWireframesHtml?: string[];
     hifiWireframesApproved?: boolean;
-    /** TSX MUI por pantalla. */
+    /** Datos de materialización en Figma a partir de wireframes HiFi. */
+    figmaDesignSystemUrl?: string;
+    figmaDestinationUrl?: string;
+    figmaFileUrl?: string;
+    /** fileKey de la API Figma (cuando se resolvió). */
+    figmaFileKey?: string;
+    figmaScreensMeta?: { screenIndex: number; nodeId: string; name: string }[];
+    figmaGenerationLog?: string[];
+    figmaOrchestrationErrors?: { screenIndex: number; message: string }[];
+    figmaGenerated?: boolean;
+    figmaApproved?: boolean;
+    /** TSX generado desde Figma (fuente oficial para handoff cuando existe). */
+    tsxFinalScreens?: string[];
+    /** TSX desde wireframes HiFi (legado / fallback). */
     tsxMuiScreens?: string[];
     tsxMuiApproved?: boolean;
     /** Usuario abrió la página de handoff al menos una vez */
@@ -156,6 +169,32 @@ export function loadWorkflowByInitiativeId(initiativeId: string): WorkflowSessio
                 ? (p.hifiWireframesHtml as unknown[]).filter((x): x is string => typeof x === 'string')
                 : undefined,
             hifiWireframesApproved: p.hifiWireframesApproved === true,
+            figmaDesignSystemUrl: typeof p.figmaDesignSystemUrl === 'string' ? p.figmaDesignSystemUrl : undefined,
+            figmaDestinationUrl: typeof p.figmaDestinationUrl === 'string' ? p.figmaDestinationUrl : undefined,
+            figmaFileUrl: typeof p.figmaFileUrl === 'string' ? p.figmaFileUrl : undefined,
+            figmaFileKey: typeof p.figmaFileKey === 'string' ? p.figmaFileKey : undefined,
+            figmaScreensMeta: Array.isArray(p.figmaScreensMeta)
+                ? (p.figmaScreensMeta as unknown[])
+                      .filter((x) => x && typeof x === 'object')
+                      .map((x) => x as { screenIndex?: unknown; nodeId?: unknown; name?: unknown })
+                      .filter((x) => typeof x.screenIndex === 'number' && typeof x.nodeId === 'string' && typeof x.name === 'string')
+                      .map((x) => ({ screenIndex: x.screenIndex as number, nodeId: x.nodeId as string, name: x.name as string }))
+                : undefined,
+            figmaGenerationLog: Array.isArray(p.figmaGenerationLog)
+                ? (p.figmaGenerationLog as unknown[]).filter((x): x is string => typeof x === 'string')
+                : undefined,
+            figmaOrchestrationErrors: Array.isArray(p.figmaOrchestrationErrors)
+                ? (p.figmaOrchestrationErrors as unknown[])
+                      .filter((x) => x && typeof x === 'object')
+                      .map((x) => x as { screenIndex?: unknown; message?: unknown })
+                      .filter((x) => typeof x.screenIndex === 'number' && typeof x.message === 'string')
+                      .map((x) => ({ screenIndex: x.screenIndex as number, message: x.message as string }))
+                : undefined,
+            figmaGenerated: p.figmaGenerated === true,
+            figmaApproved: p.figmaApproved === true,
+            tsxFinalScreens: Array.isArray(p.tsxFinalScreens)
+                ? (p.tsxFinalScreens as unknown[]).filter((x): x is string => typeof x === 'string')
+                : undefined,
             tsxMuiScreens: Array.isArray(p.tsxMuiScreens)
                 ? (p.tsxMuiScreens as unknown[]).filter((x): x is string => typeof x === 'string')
                 : undefined,
@@ -230,9 +269,17 @@ export function resetPostPrototypePipelineAndPatch(partial: Partial<WorkflowSess
     delete next.userFlowSvg;
     delete next.hifiWireframesRaw;
     delete next.hifiWireframesHtml;
+    delete next.figmaFileUrl;
+    delete next.figmaFileKey;
+    delete next.figmaScreensMeta;
+    delete next.figmaGenerationLog;
+    delete next.figmaOrchestrationErrors;
+    delete next.tsxFinalScreens;
     delete next.tsxMuiScreens;
     next.userFlowApproved = false;
     next.hifiWireframesApproved = false;
+    next.figmaGenerated = false;
+    next.figmaApproved = false;
     next.tsxMuiApproved = false;
     next.handoffVisited = false;
     next.workflowCompleted = false;

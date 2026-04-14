@@ -16,7 +16,10 @@ export default function CodigoMuiPage() {
     const idx = wf?.selectedSolutionIndex;
     const solution = wf && idx != null && idx >= 1 && idx <= 3 ? wf.ideationSolutions?.[idx - 1] : undefined;
     const hifi = wf?.hifiWireframesHtml;
-    const tsx = wf?.tsxMuiScreens;
+    const tsxFinal = wf?.tsxFinalScreens;
+    const tsxLegacy = wf?.tsxMuiScreens;
+    const tsx = (tsxFinal?.length ?? 0) > 0 ? tsxFinal : tsxLegacy;
+    const fromFigma = (tsxFinal?.length ?? 0) > 0;
 
     useEffect(() => {
         document.title = 'Código TSX MUI · UX Agent Platform';
@@ -27,14 +30,14 @@ export default function CodigoMuiPage() {
 
     useEffect(() => {
         const w = loadWorkflow();
-        if (!w?.hifiWireframesApproved || !w.hifiWireframesHtml?.length) {
-            navigate('/wireframes-hifi', { replace: true });
+        if (!w?.figmaApproved) {
+            navigate('/figma', { replace: true });
             return;
         }
         setWf(w);
     }, [navigate]);
 
-    /** Primera carga: generar TSX desde los wireframes HiFi sin CTA manual. */
+    /** Primera carga: TSX desde Figma (API) con fallback a wireframes HiFi. */
     useEffect(() => {
         if (!wf?.hifiWireframesApproved || !wf.analysis) return;
         const analysis = wf.analysis;
@@ -44,12 +47,30 @@ export default function CodigoMuiPage() {
         if (!sol) return;
         const hifiHtml = wf.hifiWireframesHtml ?? [];
         if (hifiHtml.length === 0) return;
-        if ((wf.tsxMuiScreens?.length ?? 0) > 0) return;
+        if ((wf.tsxFinalScreens?.length ?? 0) > 0 || (wf.tsxMuiScreens?.length ?? 0) > 0) return;
 
         setBusy(true);
         let cancelled = false;
         void (async () => {
+            const canFigma = Boolean(wf.figmaFileUrl?.trim() && wf.figmaScreensMeta && wf.figmaScreensMeta.length > 0);
             try {
+                if (canFigma && wf.figmaFileUrl && wf.figmaScreensMeta) {
+                    const { tsxFinalScreens } = await api.generateTsxFromFigma({
+                        initiativeName: wf.initiativeName,
+                        jiraTicket: wf.jiraTicket,
+                        squad: wf.squad,
+                        analysis,
+                        solution: sol,
+                        figmaFileUrl: wf.figmaFileUrl,
+                        figmaScreensMeta: wf.figmaScreensMeta,
+                        hifiWireframesHtml: hifiHtml,
+                    });
+                    if (cancelled) return;
+                    patchWorkflow({ tsxFinalScreens: tsxFinalScreens, tsxMuiScreens: undefined });
+                    setWf(loadWorkflow());
+                    toast(`Se generaron ${tsxFinalScreens.length} TSX desde Figma.`, 'success');
+                    return;
+                }
                 const { tsxScreens } = await api.generateTsxMuiScreens({
                     initiativeName: wf.initiativeName,
                     jiraTicket: wf.jiraTicket,
@@ -59,13 +80,37 @@ export default function CodigoMuiPage() {
                     hifiHtmlScreens: hifiHtml,
                 });
                 if (cancelled) return;
-                patchWorkflow({ tsxMuiScreens: tsxScreens });
+                patchWorkflow({ tsxMuiScreens: tsxScreens, tsxFinalScreens: undefined });
                 setWf(loadWorkflow());
-                toast(`Se generaron ${tsxScreens.length} archivo(s) TSX.`, 'success');
+                toast(`Se generaron ${tsxScreens.length} TSX desde wireframes (sin metadata Figma).`, 'success');
             } catch (e) {
                 if (cancelled) return;
-                const msg = e instanceof ApiError ? e.message : 'Error al generar TSX.';
-                toast(msg, 'error');
+                if (canFigma) {
+                    console.warn('TSX desde Figma falló; probando legado wireframes:', e);
+                    try {
+                        const { tsxScreens } = await api.generateTsxMuiScreens({
+                            initiativeName: wf.initiativeName,
+                            jiraTicket: wf.jiraTicket,
+                            squad: wf.squad,
+                            analysis,
+                            solution: sol,
+                            hifiHtmlScreens: hifiHtml,
+                        });
+                        if (cancelled) return;
+                        patchWorkflow({ tsxMuiScreens: tsxScreens, tsxFinalScreens: undefined });
+                        setWf(loadWorkflow());
+                        toast(
+                            'No se pudo generar desde Figma; se usó TSX desde wireframes HiFi (modo legado).',
+                            'success'
+                        );
+                    } catch (e2) {
+                        const msg = e2 instanceof ApiError ? e2.message : 'Error al generar TSX.';
+                        toast(msg, 'error');
+                    }
+                } else {
+                    const msg = e instanceof ApiError ? e.message : 'Error al generar TSX.';
+                    toast(msg, 'error');
+                }
             } finally {
                 if (!cancelled) setBusy(false);
             }
@@ -73,7 +118,8 @@ export default function CodigoMuiPage() {
         return () => {
             cancelled = true;
         };
-        // `toast` estable en la práctica; incluirlo re-dispararía el efecto y duplicaría la API.
+        // `toast` estable; incluirlo re-dispararía generación duplicada.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [wf]);
 
     useEffect(() => {
@@ -85,6 +131,25 @@ export default function CodigoMuiPage() {
         if (!wf || !solution || !wf.analysis || !hifi?.length) return;
         setBusy(true);
         try {
+            const canFigma = Boolean(wf.figmaFileUrl?.trim() && wf.figmaScreensMeta && wf.figmaScreensMeta.length > 0);
+            if (canFigma && wf.figmaFileUrl && wf.figmaScreensMeta) {
+                const { tsxFinalScreens } = await api.generateTsxFromFigma({
+                    initiativeName: wf.initiativeName,
+                    jiraTicket: wf.jiraTicket,
+                    squad: wf.squad,
+                    analysis: wf.analysis,
+                    solution,
+                    figmaFileUrl: wf.figmaFileUrl,
+                    figmaScreensMeta: wf.figmaScreensMeta,
+                    hifiWireframesHtml: hifi,
+                    feedback: feedback.trim() || undefined,
+                });
+                patchWorkflow({ tsxFinalScreens: tsxFinalScreens, tsxMuiScreens: undefined });
+                setWf(loadWorkflow());
+                setFeedback('');
+                toast(`Se actualizaron ${tsxFinalScreens.length} TSX desde Figma.`, 'success');
+                return;
+            }
             const { tsxScreens } = await api.generateTsxMuiScreens({
                 initiativeName: wf.initiativeName,
                 jiraTicket: wf.jiraTicket,
@@ -94,10 +159,10 @@ export default function CodigoMuiPage() {
                 hifiHtmlScreens: hifi,
                 feedback: feedback.trim() || undefined,
             });
-            patchWorkflow({ tsxMuiScreens: tsxScreens });
+            patchWorkflow({ tsxMuiScreens: tsxScreens, tsxFinalScreens: undefined });
             setWf(loadWorkflow());
             setFeedback('');
-            toast(`Se actualizaron ${tsxScreens.length} archivo(s) TSX.`, 'success');
+            toast(`Se actualizaron ${tsxScreens.length} archivo(s) TSX (wireframes).`, 'success');
         } catch (e) {
             const msg = e instanceof ApiError ? e.message : 'Error al generar TSX.';
             toast(msg, 'error');
@@ -141,15 +206,25 @@ export default function CodigoMuiPage() {
 
     return (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-            <ProgressBar currentStep={5} />
+            <ProgressBar currentStep={6} />
 
             <div className="bg-white rounded-lg shadow-sm p-8 fade-in">
                 <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900">5. Código TSX (MUI v5)</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">6. Código TSX final (MUI v5)</h1>
                     <p className="text-gray-600 mt-1">
-                        Un componente por pantalla, derivado de los wireframes HiFi. El código se genera solo al entrar;
-                        podés regenerarlo con feedback si querés iterar.
+                        Prioridad: TSX generado desde Figma (metadata + capturas PNG si el servidor tiene{' '}
+                        <code className="text-xs bg-gray-100 px-1 rounded">FIGMA_ACCESS_TOKEN</code>). Si falla, se usa
+                        wireframes HiFi como respaldo.
                     </p>
+                    {fromFigma ? (
+                        <p className="text-xs text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1 mt-2 inline-block">
+                            Fuente actual: Figma
+                        </p>
+                    ) : n > 0 ? (
+                        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2 inline-block">
+                            Fuente actual: wireframes HiFi (legado / fallback)
+                        </p>
+                    ) : null}
                 </div>
 
                 {n > 0 ? (
@@ -207,12 +282,12 @@ export default function CodigoMuiPage() {
                 ) : busy ? (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-600 text-sm gap-3 mb-8 border border-gray-200 rounded-lg bg-gray-50">
                         <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" />
-                        Generando código TSX a partir de los wireframes HiFi…
+                        Generando código TSX (Figma o wireframes HiFi)…
                     </div>
                 ) : (
                     <div className="mb-8 space-y-3">
                         <p className="text-sm text-gray-500">
-                            No se pudo generar el código automáticamente. Reintentá o volvé a wireframes HiFi.
+                            No se pudo generar el código automáticamente. Reintentá o volvé a Figma / wireframes HiFi.
                         </p>
                         <button
                             type="button"
@@ -226,10 +301,10 @@ export default function CodigoMuiPage() {
 
                 <div className="flex flex-col sm:flex-row gap-4">
                     <Link
-                        to="/wireframes-hifi"
+                        to="/figma"
                         className="px-6 py-3 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 text-center text-gray-900 ux-focus"
                     >
-                        ← Volver a wireframes HiFi
+                        ← Volver a Figma
                     </Link>
                     <button
                         type="button"

@@ -55,6 +55,13 @@ export const config = {
         Math.max(30_000, parsePositiveInt(process.env.HIFI_AIDESIGNER_TIMEOUT_MS, 180_000))
     ),
 
+    /**
+     * Token personal de Figma (Settings → Personal access tokens).
+     * Permite leer el archivo destino, mapear frames a pantallas y exportar PNG para TSX desde Figma.
+     * El MCP de Cursor no es invocable desde Express; este token es la integración servidor.
+     */
+    FIGMA_ACCESS_TOKEN: (process.env.FIGMA_ACCESS_TOKEN || '').trim(),
+
     TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL!,
     TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
 

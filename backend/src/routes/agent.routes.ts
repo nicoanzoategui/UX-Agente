@@ -11,6 +11,8 @@ import {
     generateSpecWithPromptC,
     generateStepEWireframeOptions,
     generateTsxMuiScreens,
+    generateTsxFromFigma,
+    loadFigmaSnapshotsForTsx,
     generateHandoffZip,
     generateUnderstandingAnalysis,
     generateUserFlow,
@@ -19,6 +21,7 @@ import {
     type PrototypeScreenSpecDto,
     type UnderstandingAnalysisResult,
 } from '../services/llm.service.js';
+import { generateFigmaFromWireframes } from '../services/figma.service.js';
 
 const router = Router();
 
@@ -593,6 +596,136 @@ router.post('/generate-tsx-mui-screens', async (req, res) => {
     }
 });
 
+/** POST /api/generate-figma-from-wireframes — prepara metadata de pantallas para etapa Figma. */
+router.post('/generate-figma-from-wireframes', async (req, res) => {
+    const body = req.body as {
+        initiativeName?: string;
+        analysis?: unknown;
+        solution?: unknown;
+        hifiWireframesHtml?: unknown;
+        designSystemUrl?: string;
+        destinationUrl?: string;
+    };
+    const initiativeName = String(body.initiativeName ?? '').trim();
+    if (!initiativeName) return res.status(400).json({ error: 'initiativeName es obligatorio.' });
+    if (!isUnderstandingAnalysis(body.analysis)) {
+        return res.status(400).json({ error: 'analysis inválido.' });
+    }
+    const solution = parseIdeationSolutionBody(body.solution);
+    if (!solution) return res.status(400).json({ error: 'solution inválida.' });
+    const rawScreens = body.hifiWireframesHtml;
+    const hifiWireframesHtml = Array.isArray(rawScreens)
+        ? (rawScreens as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        : [];
+    if (hifiWireframesHtml.length === 0) {
+        return res.status(400).json({ error: 'hifiWireframesHtml debe ser un array de strings no vacío.' });
+    }
+    const designSystemUrl = String(body.designSystemUrl ?? '').trim();
+    const destinationUrl = String(body.destinationUrl ?? '').trim();
+    if (!designSystemUrl || !destinationUrl) {
+        return res.status(400).json({ error: 'designSystemUrl y destinationUrl son obligatorios.' });
+    }
+    try {
+        const out = await generateFigmaFromWireframes({
+            initiativeName,
+            hifiWireframesHtml,
+            solutionFlowSteps: solution.flowSteps,
+            designSystemUrl,
+            destinationUrl,
+        });
+        res.json({
+            success: true,
+            figmaFileUrl: out.figmaFileUrl,
+            figmaFileKey: out.figmaFileKey,
+            screens: out.screens,
+            logs: out.logs,
+            errors: out.errors,
+            figmaApiUsed: out.figmaApiUsed,
+        });
+    } catch (error) {
+        console.error('Error en generate-figma-from-wireframes:', error);
+        const msg = (error as Error)?.message || 'Error preparando salida para Figma';
+        res.status(500).json({ error: msg });
+    }
+});
+
+/** POST /api/generate-tsx-from-figma — TSX MUI por pantalla usando metadata Figma (+ PNG API si hay token). */
+router.post('/generate-tsx-from-figma', async (req, res) => {
+    const body = req.body as {
+        initiativeName?: string;
+        jiraTicket?: string;
+        squad?: string;
+        analysis?: unknown;
+        solution?: unknown;
+        figmaFileUrl?: string;
+        figmaScreensMeta?: unknown;
+        hifiWireframesHtml?: unknown;
+        feedback?: string;
+    };
+    const initiativeName = String(body.initiativeName ?? '').trim();
+    if (!initiativeName) return res.status(400).json({ error: 'initiativeName es obligatorio.' });
+    if (!isUnderstandingAnalysis(body.analysis)) {
+        return res.status(400).json({ error: 'analysis inválido.' });
+    }
+    const solution = parseIdeationSolutionBody(body.solution);
+    if (!solution) return res.status(400).json({ error: 'solution inválida.' });
+    const figmaFileUrl = String(body.figmaFileUrl ?? '').trim();
+    if (!figmaFileUrl) return res.status(400).json({ error: 'figmaFileUrl es obligatorio.' });
+    const rawMeta = body.figmaScreensMeta;
+    const figmaScreensMeta = Array.isArray(rawMeta)
+        ? (rawMeta as unknown[])
+              .filter((x) => x && typeof x === 'object')
+              .map((x) => x as Record<string, unknown>)
+              .filter(
+                  (x) =>
+                      typeof x.screenIndex === 'number' &&
+                      typeof x.nodeId === 'string' &&
+                      typeof x.name === 'string'
+              )
+              .map((x) => ({
+                  screenIndex: x.screenIndex as number,
+                  nodeId: x.nodeId as string,
+                  name: x.name as string,
+              }))
+        : [];
+    if (figmaScreensMeta.length === 0) {
+        return res.status(400).json({ error: 'figmaScreensMeta debe ser un array no vacío.' });
+    }
+    figmaScreensMeta.sort((a, b) => a.screenIndex - b.screenIndex);
+    const rawHifi = body.hifiWireframesHtml;
+    const hifiWireframesHtml = Array.isArray(rawHifi)
+        ? (rawHifi as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
+        : [];
+    const n = figmaScreensMeta.length;
+    const hifiAligned =
+        hifiWireframesHtml.length >= n
+            ? hifiWireframesHtml.slice(0, n)
+            : [...hifiWireframesHtml, ...Array.from({ length: n - hifiWireframesHtml.length }, () => '<!-- sin HTML -->')];
+
+    const specMd = buildPlatformSpecMarkdown({
+        initiativeName,
+        jiraTicket: String(body.jiraTicket ?? '').trim(),
+        squad: String(body.squad ?? '').trim(),
+        analysis: body.analysis,
+        solution,
+    });
+    const feedback = String(body.feedback ?? '').trim() || undefined;
+    try {
+        const snaps = await loadFigmaSnapshotsForTsx(figmaFileUrl, figmaScreensMeta);
+        const tsxFinalScreens = await generateTsxFromFigma(
+            specMd,
+            hifiAligned,
+            { figmaFileUrl, screensMeta: figmaScreensMeta, feedback },
+            snaps ? { screenSnapshots: snaps } : undefined
+        );
+        res.json({ success: true, tsxFinalScreens });
+    } catch (error) {
+        console.error('Error en generate-tsx-from-figma:', error);
+        const msg = (error as Error)?.message || 'Error generando TSX desde Figma';
+        res.status(500).json({ error: msg });
+    }
+});
+
 /** POST /api/generate-spec — Prompt C (spec para revisión tipo Gate 1, sin persistir tarjeta). */
 router.post('/generate-spec', async (req, res) => {
     const { transcript } = req.body as { transcript?: string };
@@ -621,6 +754,10 @@ router.post('/generate-handoff-zip', async (req, res) => {
         userFlowSvg?: string;
         hifiWireframesHtml?: unknown;
         tsxMuiScreens?: unknown;
+        tsxFinalScreens?: unknown;
+        tsxSource?: string;
+        figmaFileUrl?: string;
+        figmaScreensMeta?: unknown;
         flowStepLabels?: unknown;
     };
     const initiativeName = String(body.initiativeName ?? '').trim();
@@ -636,13 +773,44 @@ router.post('/generate-handoff-zip', async (req, res) => {
     const hifiWireframesHtml = Array.isArray(rawHifi)
         ? (rawHifi as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
         : [];
+    const rawFinal = body.tsxFinalScreens;
+    const tsxFinalScreens = Array.isArray(rawFinal)
+        ? (rawFinal as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        : [];
     const rawTsx = body.tsxMuiScreens;
     const tsxMuiScreens = Array.isArray(rawTsx)
         ? (rawTsx as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
         : [];
-    if (tsxMuiScreens.length === 0) {
-        return res.status(400).json({ error: 'tsxMuiScreens debe ser un array de strings no vacío.' });
+    const tsxForZip = tsxFinalScreens.length > 0 ? tsxFinalScreens : tsxMuiScreens;
+    if (tsxForZip.length === 0) {
+        return res.status(400).json({
+            error: 'Enviá tsxFinalScreens o tsxMuiScreens como array de strings no vacío.',
+        });
     }
+    const tsxSource: 'figma' | 'wireframes' =
+        body.tsxSource === 'wireframes'
+            ? 'wireframes'
+            : tsxFinalScreens.length > 0
+              ? 'figma'
+              : 'wireframes';
+    const figmaFileUrl = String(body.figmaFileUrl ?? '').trim() || undefined;
+    const rawFigmaMeta = body.figmaScreensMeta;
+    const figmaScreensMeta = Array.isArray(rawFigmaMeta)
+        ? (rawFigmaMeta as unknown[])
+              .filter((x) => x && typeof x === 'object')
+              .map((x) => x as Record<string, unknown>)
+              .filter(
+                  (x) =>
+                      typeof x.screenIndex === 'number' &&
+                      typeof x.nodeId === 'string' &&
+                      typeof x.name === 'string'
+              )
+              .map((x) => ({
+                  screenIndex: x.screenIndex as number,
+                  nodeId: x.nodeId as string,
+                  name: x.name as string,
+              }))
+        : undefined;
     const rawSteps = body.flowStepLabels;
     const flowStepLabels = Array.isArray(rawSteps)
         ? (rawSteps as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
@@ -656,9 +824,12 @@ router.post('/generate-handoff-zip', async (req, res) => {
             analysisMarkdown,
             userFlowSvg,
             hifiHtmlScreens: hifiWireframesHtml,
-            tsxScreens: tsxMuiScreens,
+            tsxScreens: tsxForZip,
             flowStepLabels,
             availableEndpoints: analysis.availableEndpoints,
+            tsxSource,
+            figmaFileUrl,
+            figmaScreensMeta,
         });
         const safe = initiativeName.replace(/[^\w\-.]+/g, '_').slice(0, 72) || 'handoff';
         res.setHeader('Content-Type', 'application/zip');

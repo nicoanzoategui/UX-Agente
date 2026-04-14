@@ -111,3 +111,38 @@ export function buildTsxMuiUserPrompt(input: { specMarkdown: string; screensHtml
         `## Wireframes HiFi (HTML por pantalla, en orden)\n${input.screensHtmlJoined.slice(0, 120_000)}`
     );
 }
+
+export const TSX_FROM_FIGMA_SCREENS_SYSTEM = `Sos un dev frontend React + TypeScript. Generás código TSX por pantalla usando MUI v5 (@mui/material) de forma idiomática.
+La fuente de verdad del layout es el diseño final en Figma (metadata + capturas PNG si se adjuntan). Los wireframes HiFi HTML son solo referencia secundaria de contenido y jerarquía cuando haya ambigüedad.
+Formato obligatorio: por cada pantalla N (1..K, donde K es la cantidad de pantallas en el contexto) emití exactamente:
+---TSX_N---
+seguido de un único componente React default export (función) con el nombre ScreenN (ajustá N al dígito).
+Reglas:
+- importá solo de 'react' y '@mui/material' (y @mui/icons-material si hace falta iconos puntuales).
+- Sin datos remotos; props opcionales mínimas.
+- Reproducí densidad, alineación y jerarquía del diseño Figma; respetá nombres de frame y pasos del flujo.
+- Tipado explícito donde aporte; sin any innecesario.
+- Sin texto antes del primer ---TSX_1--- ni después del último bloque.
+- Un bloque por pantalla en el mismo orden que la metadata (Pantalla 1..K).`;
+
+export function buildTsxFromFigmaUserPrompt(input: {
+    specMarkdown: string;
+    figmaFileUrl: string;
+    screensMetaJson: string;
+    hifiHtmlJoined: string;
+    feedback?: string;
+}): string {
+    const fb = input.feedback?.trim();
+    return [
+        `## Spec\n${input.specMarkdown.trim().slice(0, 50_000)}`,
+        '',
+        `## Archivo Figma (URL)\n${input.figmaFileUrl.trim().slice(0, 2000)}`,
+        '',
+        '## Metadata de pantallas (JSON: screenIndex, nodeId, name)',
+        input.screensMetaJson.slice(0, 16_000),
+        '',
+        '## Wireframes HiFi (HTML por pantalla, referencia secundaria; truncado)',
+        input.hifiHtmlJoined.slice(0, 80_000),
+        fb ? `\n\n## Feedback del usuario para esta iteración\n${fb.slice(0, 8000)}` : '',
+    ].join('\n');
+}

@@ -37,14 +37,17 @@ import {
 } from '../prompts/prototype-flow-prompts.js';
 import {
     FULL_FLOW_HIFI_HTML_SYSTEM,
+    TSX_FROM_FIGMA_SCREENS_SYSTEM,
     TSX_MUI_SCREENS_SYSTEM,
     USER_FLOW_CHAT_SYSTEM,
     USER_FLOW_SVG_SYSTEM,
     buildFullFlowHifiUserPrompt,
+    buildTsxFromFigmaUserPrompt,
     buildTsxMuiUserPrompt,
     buildUserFlowChatUserPrompt,
     buildUserFlowSvgUserPrompt,
 } from '../prompts/platform-post-prototype-prompts.js';
+import { fetchFigmaScreenPngs, parseFigmaDesignUrl } from './figma.service.js';
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || '');
 
@@ -239,6 +242,57 @@ async function generateTextWithRetries(
         });
         try {
             const result = await model.generateContent(combinedPrompt);
+            return extractGeminiText(result.response, activeModelId);
+        } catch (e: unknown) {
+            lastMsg = (e as Error)?.message || String(e);
+            if (isModelOverloadError(lastMsg) && activeModelId !== GEMINI_FALLBACK_MODEL) {
+                console.warn(
+                    `Gemini (${activeModelId}) no disponible (503 / demanda); usando ${GEMINI_FALLBACK_MODEL}.`
+                );
+                activeModelId = GEMINI_FALLBACK_MODEL;
+                attempt -= 1;
+                continue;
+            }
+            const hint = formatGeminiFailureHint(activeModelId, lastMsg);
+
+            if (!isRateLimitError(lastMsg) || attempt === maxAttempts) throw new Error(hint);
+            if (looksLikeQuotaHardStop(lastMsg)) throw new Error(`${hint}\n\nCuota agotada.`);
+
+            const sec = parseRetryAfterSeconds(lastMsg) ?? 55;
+            const waitMs = Math.min(Math.max(sec * 1000, 3000), 120_000);
+            console.warn(`Gemini rate limit, intento ${attempt}/${maxAttempts}, esperando ${Math.round(waitMs / 1000)}s…`);
+            await sleep(waitMs);
+        }
+    }
+
+    throw new Error(`Gemini: agotados los reintentos (${activeModelId}). Último error: ${lastMsg}`);
+}
+
+async function generateMultimodalTextWithRetries(
+    systemInstruction: string,
+    parts: Part[],
+    temperature = 0.5,
+    opts?: GenerateTextOpts
+): Promise<string> {
+    const key = config.GEMINI_API_KEY?.trim();
+    if (!key) throw new Error('GEMINI_API_KEY no está definida o está vacía.');
+
+    const maxAttempts = 4;
+    let lastMsg = '';
+    let activeModelId = config.GEMINI_MODEL;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const model = genAI.getGenerativeModel({
+            model: activeModelId,
+            systemInstruction: systemInstruction.trim(),
+            generationConfig: {
+                temperature,
+                maxOutputTokens: opts?.maxOutputTokens ?? 8192,
+                ...(opts?.responseMimeType ? { responseMimeType: opts.responseMimeType } : {}),
+            },
+        });
+        try {
+            const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
             return extractGeminiText(result.response, activeModelId);
         } catch (e: unknown) {
             lastMsg = (e as Error)?.message || String(e);
@@ -1245,6 +1299,87 @@ export async function generateTsxMuiScreens(
     return blocks;
 }
 
+export type FigmaScreenMetaForHandoff = { screenIndex: number; nodeId: string; name: string };
+
+/** TSX final alineado a Figma (capturas PNG opcionales + metadata). */
+export async function generateTsxFromFigma(
+    specMarkdown: string,
+    hifiHtmlScreens: string[],
+    input: {
+        figmaFileUrl: string;
+        screensMeta: FigmaScreenMetaForHandoff[];
+        feedback?: string;
+    },
+    opts?: { screenSnapshots?: (Buffer | null)[] }
+): Promise<string[]> {
+    if (!input.screensMeta.length) throw new Error('Falta metadata de pantallas Figma.');
+    const joined = hifiHtmlScreens
+        .map((html, i) => `### Pantalla ${i + 1}\n${html}`)
+        .join('\n\n')
+        .slice(0, 120_000);
+    const metaJson = JSON.stringify(input.screensMeta).slice(0, 16_000);
+    const baseText = buildTsxFromFigmaUserPrompt({
+        specMarkdown,
+        figmaFileUrl: input.figmaFileUrl,
+        screensMetaJson: metaJson,
+        hifiHtmlJoined: joined,
+        feedback: input.feedback,
+    });
+
+    const snaps = opts?.screenSnapshots;
+    const hasAnyPng = Boolean(snaps?.some((b) => b && b.length > 0));
+
+    let raw: string;
+    if (hasAnyPng && snaps && snaps.length > 0) {
+        const parts: Part[] = [
+            { text: baseText },
+            { text: '\n\n## Capturas exportadas desde Figma (PNG, una por pantalla en orden)\n' },
+        ];
+        for (let i = 0; i < snaps.length; i++) {
+            const buf = snaps[i];
+            parts.push({ text: `\n### Pantalla ${i + 1}\n` });
+            if (buf && buf.length > 0) {
+                parts.push({
+                    inlineData: {
+                        mimeType: 'image/png',
+                        data: buf.toString('base64'),
+                    },
+                });
+            } else {
+                parts.push({ text: '(sin PNG para esta pantalla; usá metadata + HTML.)\n' });
+            }
+        }
+        raw = await generateMultimodalTextWithRetries(TSX_FROM_FIGMA_SCREENS_SYSTEM, parts, 0.22, {
+            maxOutputTokens: 24_576,
+        });
+    } else {
+        raw = await generateTextWithRetries(TSX_FROM_FIGMA_SCREENS_SYSTEM, baseText, 0.22, { maxOutputTokens: 24_576 });
+    }
+
+    const blocks = splitDelimitedBlocks(raw, 'TSX');
+    if (blocks.length === 0) {
+        throw new Error('El modelo no devolvió bloques ---TSX_N--- parseables (Figma).');
+    }
+    return blocks;
+}
+
+/** Descarga PNG desde la API de Figma para enriquecer generateTsxFromFigma. */
+export async function loadFigmaSnapshotsForTsx(
+    figmaFileUrl: string,
+    screensMeta: FigmaScreenMetaForHandoff[]
+): Promise<(Buffer | null)[] | undefined> {
+    const token = config.FIGMA_ACCESS_TOKEN?.trim();
+    if (!token) return undefined;
+    const parsed = parseFigmaDesignUrl(figmaFileUrl);
+    if (!parsed) return undefined;
+    try {
+        return await fetchFigmaScreenPngs(parsed.fileKey, screensMeta, token);
+    } catch (e) {
+        console.warn('loadFigmaSnapshotsForTsx: omitiendo capturas:', (e as Error)?.message ?? e);
+        return undefined;
+    }
+}
+
 // --- Handoff ZIP (README, theme, routes, endpoints + pantallas + SVG) ---
 
 export type HandoffZipInput = {
@@ -1257,6 +1392,9 @@ export type HandoffZipInput = {
     tsxScreens: string[];
     flowStepLabels: string[];
     availableEndpoints?: ApiEndpointDescriptor[];
+    tsxSource?: 'figma' | 'wireframes';
+    figmaFileUrl?: string;
+    figmaScreensMeta?: FigmaScreenMetaForHandoff[];
 };
 
 function buildHandoffZipLlmUserPrompt(input: HandoffZipInput): string {
@@ -1286,8 +1424,19 @@ function buildHandoffZipLlmUserPrompt(input: HandoffZipInput): string {
         '## Muestra TSX MUI (truncado)',
         sampleTsx || '(sin TSX)',
         '',
+        (input.tsxSource ?? 'wireframes') === 'figma'
+            ? '## Fuente de diseño\nLos TSX del ZIP fueron generados a partir de Figma (metadata + capturas opcionales). Incluí en el README una sección breve con el link al archivo Figma y la tabla screenIndex / nodeId / name.'
+            : '## Fuente de diseño\nLos TSX se generaron desde wireframes HiFi (modo legado) si no hubo paso Figma aprobado.',
+        input.figmaFileUrl?.trim()
+            ? `## Link archivo Figma\n${input.figmaFileUrl.trim().slice(0, 2000)}`
+            : '',
+        input.figmaScreensMeta?.length
+            ? `## Metadata Figma (JSON truncado)\n${JSON.stringify(input.figmaScreensMeta).slice(0, 8000)}`
+            : '',
         `## Cantidad de archivos en screens/\nExactamente ${n} archivos: Pantalla1.tsx … Pantalla${n}.tsx.`,
-    ].join('\n');
+    ]
+        .filter((x) => x !== '')
+        .join('\n');
 }
 
 function parseHandoffZipBundleJson(raw: string): {
@@ -1366,6 +1515,17 @@ function buildFallbackHandoffArtifacts(input: HandoffZipInput): {
         '## API',
         '',
         'Revisá `api/endpoints.ts` (endpoints documentados o inferidos del flujo).',
+        ...(input.figmaFileUrl?.trim()
+            ? [
+                  '',
+                  '## Diseño final (Figma)',
+                  '',
+                  `- Archivo: ${input.figmaFileUrl.trim()}`,
+                  `- Fuente TSX declarada: ${(input.tsxSource ?? 'wireframes') === 'figma' ? 'Figma' : 'Wireframes HiFi (legado)'}`,
+                  '',
+                  'Detalle por pantalla en `figma-metadata.json`.',
+              ]
+            : []),
     ].join('\n');
 
     const themeTs = `import { createTheme } from '@mui/material/styles';
@@ -1490,6 +1650,21 @@ export async function generateHandoffZip(input: HandoffZipInput): Promise<Buffer
         screens.file(`Pantalla${i + 1}.tsx`, code);
     }
     apiFolder.file('endpoints.ts', endpointsTs);
+
+    if (input.figmaFileUrl?.trim() || (input.figmaScreensMeta && input.figmaScreensMeta.length > 0)) {
+        root.file(
+            'figma-metadata.json',
+            JSON.stringify(
+                {
+                    figmaFileUrl: input.figmaFileUrl ?? null,
+                    tsxSource: input.tsxSource ?? 'wireframes',
+                    screens: input.figmaScreensMeta ?? [],
+                },
+                null,
+                2
+            )
+        );
+    }
 
     const out = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
     return Buffer.from(out);

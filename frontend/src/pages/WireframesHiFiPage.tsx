@@ -113,9 +113,16 @@ export default function WireframesHiFiPage() {
             toast('Generá los wireframes antes de aprobar.', 'error');
             return;
         }
-        patchWorkflow({ hifiWireframesApproved: true });
+        patchWorkflow({
+            hifiWireframesApproved: true,
+            figmaGenerated: false,
+            figmaApproved: false,
+            tsxFinalScreens: undefined,
+            tsxMuiScreens: undefined,
+            tsxMuiApproved: false,
+        });
         toast('Wireframes HiFi aprobados.', 'success');
-        navigate('/codigo-mui');
+        navigate('/figma');
     }
 
     if (!wf || !solution) {
@@ -125,7 +132,7 @@ export default function WireframesHiFiPage() {
     }
 
     if (wf.hifiWireframesApproved) {
-        return <Navigate to="/codigo-mui" replace />;
+        return <Navigate to="/figma" replace />;
     }
 
     const n = hifi?.length ?? 0;
@@ -221,7 +228,7 @@ export default function WireframesHiFiPage() {
                         onClick={approve}
                         className="flex-1 gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 ux-focus disabled:opacity-50"
                     >
-                        Aprobar wireframes y continuar →
+                        Aprobar wireframes y continuar a Figma →
                     </button>
                 </div>
             </div>

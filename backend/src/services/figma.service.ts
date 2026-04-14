@@ -405,6 +405,44 @@ export async function fetchFigmaFileComponentsList(
     return out;
 }
 
+/**
+ * Fallback cuando GET …/components devuelve lista vacía: el JSON del archivo incluye `components` { nodeId → metadata }.
+ * @see https://www.figma.com/developers/api#get-files-endpoint
+ */
+export async function fetchFigmaFileComponentsFromFileMap(
+    fileKey: string,
+    token: string
+): Promise<{ key: string; name: string; description: string }[]> {
+    const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}`;
+    const res = await fetchWithTimeout(url, {
+        headers: { 'X-Figma-Token': token },
+    });
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Figma files API ${res.status}: ${txt.slice(0, 400)}`);
+    }
+    const json = (await res.json()) as {
+        components?: Record<string, { key?: string; name?: string; description?: string } | undefined>;
+    };
+    const map = json.components;
+    if (!map || typeof map !== 'object') return [];
+    const out: { key: string; name: string; description: string }[] = [];
+    const seen = new Set<string>();
+    for (const c of Object.values(map)) {
+        if (!c || typeof c !== 'object') continue;
+        const key = typeof c.key === 'string' ? c.key.trim() : '';
+        const name = typeof c.name === 'string' ? c.name.trim() : '';
+        if (!key || !name || seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+            key,
+            name,
+            description: typeof c.description === 'string' ? c.description.trim() : '',
+        });
+    }
+    return out;
+}
+
 function extractJsonObject(text: string): unknown {
     const t = text.trim();
     const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -412,8 +450,48 @@ function extractJsonObject(text: string): unknown {
     return JSON.parse(body) as unknown;
 }
 
-function isFiniteNum(n: unknown): n is number {
-    return typeof n === 'number' && Number.isFinite(n);
+/** Números que Gemini a veces manda como string ("12", "0"). */
+function coerceNumber(v: unknown): number | undefined {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim()) {
+        const n = Number(v.trim());
+        if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+}
+
+/**
+ * Parsea JSON del modelo: quita fences, trailing commas típicas, y subcadena { … }.
+ */
+function tryParseModelJson(text: string): unknown | null {
+    const t = text.trim();
+    const candidates: string[] = [t];
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence?.[1]?.trim()) candidates.push(fence[1].trim());
+    const tryParse = (raw: string): unknown | null => {
+        let cur = raw;
+        for (let pass = 0; pass < 6; pass++) {
+            try {
+                return JSON.parse(cur) as unknown;
+            } catch {
+                const next = cur.replace(/,\s*([\]}])/g, '$1');
+                if (next === cur) break;
+                cur = next;
+            }
+        }
+        return null;
+    };
+    for (const c of candidates) {
+        const ok = tryParse(c);
+        if (ok !== null) return ok;
+    }
+    const start = t.indexOf('{');
+    const end = t.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        const sliced = t.slice(start, end + 1);
+        return tryParse(sliced);
+    }
+    return null;
 }
 
 function normalizeFigmaRenderNode(raw: unknown, path: string, warnings: string[]): FigmaRenderNode | null {
@@ -426,61 +504,86 @@ function normalizeFigmaRenderNode(raw: unknown, path: string, warnings: string[]
     const name = typeof o.name === 'string' ? o.name : undefined;
 
     if (type === 'TEXT') {
-        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || typeof o.text !== 'string') {
-            warnings.push(`${path}: TEXT requiere x,y,text.`);
+        const textRaw =
+            typeof o.text === 'string'
+                ? o.text
+                : typeof o.characters === 'string'
+                  ? o.characters
+                  : typeof o.content === 'string'
+                    ? o.content
+                    : '';
+        const textVal = textRaw.length ? textRaw.slice(0, 4000) : '';
+        if (!textVal.trim()) {
+            warnings.push(`${path}: TEXT sin texto (usá "text").`);
             return null;
         }
+        const x = coerceNumber(o.x) ?? 0;
+        const y = coerceNumber(o.y) ?? 0;
         return {
             type: 'TEXT',
-            x: o.x,
-            y: o.y,
-            width: isFiniteNum(o.width) ? o.width : undefined,
-            height: isFiniteNum(o.height) ? o.height : undefined,
-            text: o.text,
-            fontSize: isFiniteNum(o.fontSize) ? o.fontSize : undefined,
+            x,
+            y,
+            width: coerceNumber(o.width),
+            height: coerceNumber(o.height),
+            text: textVal,
+            fontSize: coerceNumber(o.fontSize),
             name,
         };
     }
     if (type === 'RECTANGLE') {
-        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || !isFiniteNum(o.width) || !isFiniteNum(o.height)) {
+        const x = coerceNumber(o.x);
+        const y = coerceNumber(o.y);
+        const width = coerceNumber(o.width);
+        const height = coerceNumber(o.height);
+        if (x === undefined || y === undefined || width === undefined || height === undefined) {
             warnings.push(`${path}: RECTANGLE requiere x,y,width,height.`);
             return null;
         }
         let fills: FigmaRenderFill | undefined;
         if (o.fills && typeof o.fills === 'object') {
             const f = o.fills as Record<string, unknown>;
-            if (isFiniteNum(f.r) && isFiniteNum(f.g) && isFiniteNum(f.b)) {
-                fills = { r: f.r, g: f.g, b: f.b, a: isFiniteNum(f.a) ? f.a : undefined };
+            const r = coerceNumber(f.r);
+            const g = coerceNumber(f.g);
+            const b = coerceNumber(f.b);
+            if (r !== undefined && g !== undefined && b !== undefined) {
+                fills = { r, g, b, a: coerceNumber(f.a) };
             }
         }
         return {
             type: 'RECTANGLE',
-            x: o.x,
-            y: o.y,
-            width: o.width,
-            height: o.height,
+            x,
+            y,
+            width,
+            height,
             fills,
-            cornerRadius: isFiniteNum(o.cornerRadius) ? o.cornerRadius : undefined,
+            cornerRadius: coerceNumber(o.cornerRadius),
             name,
         };
     }
     if (type === 'INSTANCE') {
-        if (typeof o.componentKey !== 'string' || !o.componentKey.trim() || !isFiniteNum(o.x) || !isFiniteNum(o.y)) {
+        const ck = typeof o.componentKey === 'string' ? o.componentKey.trim() : '';
+        const x = coerceNumber(o.x);
+        const y = coerceNumber(o.y);
+        if (!ck || x === undefined || y === undefined) {
             warnings.push(`${path}: INSTANCE requiere componentKey,x,y.`);
             return null;
         }
         return {
             type: 'INSTANCE',
-            componentKey: o.componentKey.trim(),
-            x: o.x,
-            y: o.y,
-            width: isFiniteNum(o.width) ? o.width : undefined,
-            height: isFiniteNum(o.height) ? o.height : undefined,
+            componentKey: ck,
+            x,
+            y,
+            width: coerceNumber(o.width),
+            height: coerceNumber(o.height),
             name,
         };
     }
     if (type === 'FRAME') {
-        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || !isFiniteNum(o.width) || !isFiniteNum(o.height)) {
+        const x = coerceNumber(o.x);
+        const y = coerceNumber(o.y);
+        const width = coerceNumber(o.width);
+        const height = coerceNumber(o.height);
+        if (x === undefined || y === undefined || width === undefined || height === undefined) {
             warnings.push(`${path}: FRAME requiere x,y,width,height.`);
             return null;
         }
@@ -496,17 +599,17 @@ function normalizeFigmaRenderNode(raw: unknown, path: string, warnings: string[]
         const layoutMode = lm === 'VERTICAL' || lm === 'HORIZONTAL' ? lm : 'NONE';
         return {
             type: 'FRAME',
-            x: o.x,
-            y: o.y,
-            width: o.width,
-            height: o.height,
+            x,
+            y,
+            width,
+            height,
             name,
             layoutMode,
-            itemSpacing: isFiniteNum(o.itemSpacing) ? o.itemSpacing : undefined,
-            paddingLeft: isFiniteNum(o.paddingLeft) ? o.paddingLeft : undefined,
-            paddingRight: isFiniteNum(o.paddingRight) ? o.paddingRight : undefined,
-            paddingTop: isFiniteNum(o.paddingTop) ? o.paddingTop : undefined,
-            paddingBottom: isFiniteNum(o.paddingBottom) ? o.paddingBottom : undefined,
+            itemSpacing: coerceNumber(o.itemSpacing),
+            paddingLeft: coerceNumber(o.paddingLeft),
+            paddingRight: coerceNumber(o.paddingRight),
+            paddingTop: coerceNumber(o.paddingTop),
+            paddingBottom: coerceNumber(o.paddingBottom),
             children: children.length ? children : undefined,
         };
     }
@@ -551,9 +654,29 @@ export async function generateFigmaNodesFromHtml(input: {
         return { nodes: [], warnings: ['HTML vacío.'] };
     }
 
-    const components = await fetchFigmaFileComponentsList(input.designSystemFileKey, token);
+    let components: { key: string; name: string; description: string }[] = [];
+    try {
+        components = await fetchFigmaFileComponentsList(input.designSystemFileKey, token);
+    } catch (e) {
+        warnings.push(`Figma GET …/components: ${(e as Error)?.message || String(e)}`);
+    }
     if (!components.length) {
-        warnings.push('No se obtuvieron componentes del archivo del design system (¿publicados / token con scope file read?).');
+        try {
+            const fromFile = await fetchFigmaFileComponentsFromFileMap(input.designSystemFileKey, token);
+            if (fromFile.length) {
+                components = fromFile;
+                warnings.push(
+                    'Catálogo de componentes obtenido desde GET /v1/files (mapa `components`); el endpoint /components estaba vacío o falló.'
+                );
+            }
+        } catch (e) {
+            warnings.push(`Figma GET archivo (componentes en mapa): ${(e as Error)?.message || String(e)}`);
+        }
+    }
+    if (!components.length) {
+        warnings.push(
+            'No se obtuvieron componentes del design system (publicá componentes al team library o verificá FIGMA_ACCESS_TOKEN con lectura del archivo).'
+        );
     }
     const catalog = components.slice(0, MAX_COMPONENTS_IN_PROMPT).map((c) => ({
         key: c.key,
@@ -563,13 +686,13 @@ export async function generateFigmaNodesFromHtml(input: {
 
     const system = `Sos un asistente que traduce wireframes HTML (Tailwind-ish) a un árbol JSON de nodos para el plugin API de Figma.
 Reglas:
-- Devolvé SOLO JSON válido con forma exacta: { "nodes": [ ... ] } (sin markdown).
+- Devolvé SOLO JSON válido con forma exacta: { "nodes": [ ... ] } (sin markdown, sin comas finales).
 - Tipos permitidos por nodo: FRAME, TEXT, RECTANGLE, INSTANCE.
-- Coordenadas x,y,width,height en px relativos al frame raíz (origen arriba-izquierda, y hacia abajo).
+- Coordenadas x,y,width,height deben ser números JSON (no strings). Origen arriba-izquierda, y hacia abajo.
+- Cada TEXT debe incluir "text" (string) y números "x", "y" (usá 0 si no importa la posición exacta).
 - Usá INSTANCE solo cuando un bloque HTML corresponde claramente a un componente del catálogo; copiá el "key" exacto del catálogo en componentKey.
 - Si no hay match seguro, usá FRAME + TEXT + RECTANGLE para aproximar el layout del wireframe.
 - Profundidad máxima razonable (≤6 niveles); no más de 40 nodos en total.
-- Textos cortos en TEXT (placeholder si hace falta).
 - destinationFileKey del contexto es ${input.destinationFileKey} (solo referencia; los nodos van dentro de un frame destino ya creado).`;
 
     const user = `Catálogo de componentes del design system (usar solo estos keys en INSTANCE):\n${JSON.stringify(catalog)}\n\nWireframe HTML:\n${html}`;
@@ -584,18 +707,44 @@ Reglas:
     });
 
     const combined = `${system}\n\n---\n\n${user}`;
-    const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: combined }] }],
-    });
-    const fb = result.response.promptFeedback;
-    if (fb?.blockReason) {
-        throw new Error(`Gemini bloqueó el prompt: ${fb.blockReason}`);
+    const runGenerate = async (): Promise<string> => {
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: combined }] }],
+        });
+        const fb = result.response.promptFeedback;
+        if (fb?.blockReason) {
+            throw new Error(`Gemini bloqueó el prompt: ${fb.blockReason}`);
+        }
+        return result.response.text();
+    };
+
+    let text = await runGenerate();
+    let parsed = tryParseModelJson(text);
+    if (parsed === null) {
+        const fixModel = genAI.getGenerativeModel({
+            model: config.GEMINI_MODEL || 'gemini-2.5-flash',
+            generationConfig: {
+                temperature: 0.05,
+                maxOutputTokens: 8192,
+                responseMimeType: 'application/json',
+            },
+        });
+        const fixPrompt = `El siguiente texto debería ser un único objeto JSON con forma {"nodes":[...]} pero está mal formado o truncado.
+Devolvé SOLO JSON válido minificado, sin markdown ni texto alrededor. Corregí comas finales, comillas y llaves.
+
+---
+${text.slice(0, 14_000)}`;
+        const fixRes = await fixModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: fixPrompt }] }],
+        });
+        const fb2 = fixRes.response.promptFeedback;
+        if (fb2?.blockReason) {
+            throw new Error(`Gemini (reintento JSON) bloqueó: ${fb2.blockReason}`);
+        }
+        text = fixRes.response.text();
+        parsed = tryParseModelJson(text);
     }
-    const text = result.response.text();
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text.trim());
-    } catch {
+    if (parsed === null) {
         try {
             parsed = extractJsonObject(text);
         } catch (e) {

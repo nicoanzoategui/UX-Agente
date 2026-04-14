@@ -109,17 +109,34 @@ async function applyRenderNode(parent, node) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Reintentos ante cortes de red / cold start de Railway ("Failed to fetch"). */
 async function fetchRenderNodes(apiBase, renderSecret, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (renderSecret) headers['X-UX-Agent-Figma-Render-Secret'] = renderSecret;
-  const res = await fetch(`${apiBase}/api/figma-render-screen`, {
+  const url = `${apiBase}/api/figma-render-screen`;
+  const init = {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText || String(res.status));
-  return data;
+  };
+  const maxAttempts = 3;
+  let lastErr = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText || String(res.status));
+      return data;
+    } catch (e) {
+      lastErr = e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e);
+      if (attempt < maxAttempts) await sleep(1200 * attempt);
+    }
+  }
+  throw new Error(lastErr || 'fetch render falló');
 }
 
 figma.ui.onmessage = async (msg) => {

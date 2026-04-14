@@ -21,9 +21,61 @@ import {
     type PrototypeScreenSpecDto,
     type UnderstandingAnalysisResult,
 } from '../services/llm.service.js';
-import { generateFigmaFromWireframes } from '../services/figma.service.js';
+import { config } from '../config/env.js';
+import { generateFigmaFromWireframes, generateFigmaNodesFromHtml } from '../services/figma.service.js';
 
 const router = Router();
+
+/**
+ * Plugin Figma (sin cookie): convierte wireframe HiFi + catálogo del design system en árbol de nodos.
+ * Requiere header `X-UX-Agent-Figma-Render-Secret` igual a `FIGMA_PLUGIN_RENDER_SECRET` en producción.
+ * POST /api/figma-render-screen
+ */
+router.post('/figma-render-screen', async (req, res) => {
+    const expected = config.FIGMA_PLUGIN_RENDER_SECRET;
+    const secret = String(req.headers['x-ux-agent-figma-render-secret'] ?? '').trim();
+    if (config.NODE_ENV === 'production') {
+        if (!expected) {
+            return res.status(503).json({
+                error: 'FIGMA_PLUGIN_RENDER_SECRET no está configurado en el servidor (Railway / .env).',
+            });
+        }
+        if (secret !== expected) {
+            return res.status(401).json({ error: 'Secreto de render del plugin inválido o ausente.' });
+        }
+    } else if (expected && secret !== expected) {
+        return res.status(401).json({ error: 'Secreto de render del plugin inválido o ausente.' });
+    }
+
+    const body = req.body as {
+        hifiHtml?: string;
+        designSystemFileKey?: string;
+        destinationFileKey?: string;
+    };
+    const hifiHtml = String(body.hifiHtml ?? '').trim();
+    const designSystemFileKey = String(body.designSystemFileKey ?? '').trim();
+    const destinationFileKey = String(body.destinationFileKey ?? '').trim();
+    if (!hifiHtml || !designSystemFileKey || !destinationFileKey) {
+        return res.status(400).json({ error: 'hifiHtml, designSystemFileKey y destinationFileKey son obligatorios.' });
+    }
+    const token = config.FIGMA_ACCESS_TOKEN?.trim();
+    if (!token) {
+        return res.status(503).json({ error: 'FIGMA_ACCESS_TOKEN no configurado en el servidor.' });
+    }
+    try {
+        const out = await generateFigmaNodesFromHtml({
+            hifiHtml,
+            designSystemFileKey,
+            destinationFileKey,
+            token,
+        });
+        res.json({ success: true, nodes: out.nodes, warnings: out.warnings });
+    } catch (error) {
+        console.error('Error en figma-render-screen:', error);
+        const msg = (error as Error)?.message || 'Error generando nodos para Figma';
+        res.status(500).json({ error: msg });
+    }
+});
 
 function buildAnalysisMarkdownForHandoff(a: UnderstandingAnalysisResult): string {
     const blocks: string[] = [

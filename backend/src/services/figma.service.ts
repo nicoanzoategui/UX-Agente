@@ -1,4 +1,7 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config/env.js';
+
+const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || '');
 
 export type FigmaScreenMeta = {
     screenIndex: number;
@@ -307,6 +310,306 @@ export async function generateFigmaFromWireframes(input: {
 }
 
 /** Descarga PNG por nodo (omite pending:*). */
+/** Relleno RGBA 0–1 para rectángulos. */
+export type FigmaRenderFill = { r: number; g: number; b: number; a?: number };
+
+/** Instrucciones de nodos para el plugin Figma (árbol). */
+export type FigmaRenderNode =
+    | {
+          type: 'TEXT';
+          x: number;
+          y: number;
+          width?: number;
+          height?: number;
+          text: string;
+          fontSize?: number;
+          name?: string;
+      }
+    | {
+          type: 'RECTANGLE';
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          fills?: FigmaRenderFill;
+          cornerRadius?: number;
+          name?: string;
+      }
+    | {
+          type: 'FRAME';
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          name?: string;
+          layoutMode?: 'NONE' | 'VERTICAL' | 'HORIZONTAL';
+          itemSpacing?: number;
+          paddingLeft?: number;
+          paddingRight?: number;
+          paddingTop?: number;
+          paddingBottom?: number;
+          children?: FigmaRenderNode[];
+      }
+    | {
+          type: 'INSTANCE';
+          componentKey: string;
+          x: number;
+          y: number;
+          width?: number;
+          height?: number;
+          name?: string;
+      };
+
+export type GenerateFigmaNodesFromHtmlResult = {
+    nodes: FigmaRenderNode[];
+    warnings: string[];
+};
+
+type FigmaComponentsApiMeta = {
+    components?: { key?: string; name?: string; description?: string }[];
+};
+
+const MAX_HIFI_HTML_CHARS = 100_000;
+const MAX_COMPONENTS_IN_PROMPT = 220;
+
+/**
+ * Lista componentes publicados del archivo del design system (REST).
+ * @see https://www.figma.com/developers/api#get-file-components-endpoint
+ */
+export async function fetchFigmaFileComponentsList(
+    fileKey: string,
+    token: string
+): Promise<{ key: string; name: string; description: string }[]> {
+    const url = `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/components`;
+    const res = await fetchWithTimeout(url, {
+        headers: { 'X-Figma-Token': token },
+    });
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Figma components API ${res.status}: ${txt.slice(0, 400)}`);
+    }
+    const json = (await res.json()) as { meta?: FigmaComponentsApiMeta };
+    const raw = json.meta?.components;
+    if (!Array.isArray(raw)) return [];
+    const out: { key: string; name: string; description: string }[] = [];
+    for (const c of raw) {
+        const key = typeof c.key === 'string' ? c.key.trim() : '';
+        const name = typeof c.name === 'string' ? c.name.trim() : '';
+        if (!key || !name) continue;
+        out.push({
+            key,
+            name,
+            description: typeof c.description === 'string' ? c.description.trim() : '',
+        });
+    }
+    return out;
+}
+
+function extractJsonObject(text: string): unknown {
+    const t = text.trim();
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const body = fence?.[1]?.trim() ?? t;
+    return JSON.parse(body) as unknown;
+}
+
+function isFiniteNum(n: unknown): n is number {
+    return typeof n === 'number' && Number.isFinite(n);
+}
+
+function normalizeFigmaRenderNode(raw: unknown, path: string, warnings: string[]): FigmaRenderNode | null {
+    if (!raw || typeof raw !== 'object') {
+        warnings.push(`${path}: nodo inválido (no objeto).`);
+        return null;
+    }
+    const o = raw as Record<string, unknown>;
+    const type = typeof o.type === 'string' ? o.type.toUpperCase() : '';
+    const name = typeof o.name === 'string' ? o.name : undefined;
+
+    if (type === 'TEXT') {
+        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || typeof o.text !== 'string') {
+            warnings.push(`${path}: TEXT requiere x,y,text.`);
+            return null;
+        }
+        return {
+            type: 'TEXT',
+            x: o.x,
+            y: o.y,
+            width: isFiniteNum(o.width) ? o.width : undefined,
+            height: isFiniteNum(o.height) ? o.height : undefined,
+            text: o.text,
+            fontSize: isFiniteNum(o.fontSize) ? o.fontSize : undefined,
+            name,
+        };
+    }
+    if (type === 'RECTANGLE') {
+        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || !isFiniteNum(o.width) || !isFiniteNum(o.height)) {
+            warnings.push(`${path}: RECTANGLE requiere x,y,width,height.`);
+            return null;
+        }
+        let fills: FigmaRenderFill | undefined;
+        if (o.fills && typeof o.fills === 'object') {
+            const f = o.fills as Record<string, unknown>;
+            if (isFiniteNum(f.r) && isFiniteNum(f.g) && isFiniteNum(f.b)) {
+                fills = { r: f.r, g: f.g, b: f.b, a: isFiniteNum(f.a) ? f.a : undefined };
+            }
+        }
+        return {
+            type: 'RECTANGLE',
+            x: o.x,
+            y: o.y,
+            width: o.width,
+            height: o.height,
+            fills,
+            cornerRadius: isFiniteNum(o.cornerRadius) ? o.cornerRadius : undefined,
+            name,
+        };
+    }
+    if (type === 'INSTANCE') {
+        if (typeof o.componentKey !== 'string' || !o.componentKey.trim() || !isFiniteNum(o.x) || !isFiniteNum(o.y)) {
+            warnings.push(`${path}: INSTANCE requiere componentKey,x,y.`);
+            return null;
+        }
+        return {
+            type: 'INSTANCE',
+            componentKey: o.componentKey.trim(),
+            x: o.x,
+            y: o.y,
+            width: isFiniteNum(o.width) ? o.width : undefined,
+            height: isFiniteNum(o.height) ? o.height : undefined,
+            name,
+        };
+    }
+    if (type === 'FRAME') {
+        if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || !isFiniteNum(o.width) || !isFiniteNum(o.height)) {
+            warnings.push(`${path}: FRAME requiere x,y,width,height.`);
+            return null;
+        }
+        const childrenRaw = Array.isArray(o.children) ? o.children : [];
+        const children: FigmaRenderNode[] = [];
+        let i = 0;
+        for (const c of childrenRaw) {
+            const n = normalizeFigmaRenderNode(c, `${path}.children[${i}]`, warnings);
+            if (n) children.push(n);
+            i++;
+        }
+        const lm = typeof o.layoutMode === 'string' ? o.layoutMode.toUpperCase() : 'NONE';
+        const layoutMode = lm === 'VERTICAL' || lm === 'HORIZONTAL' ? lm : 'NONE';
+        return {
+            type: 'FRAME',
+            x: o.x,
+            y: o.y,
+            width: o.width,
+            height: o.height,
+            name,
+            layoutMode,
+            itemSpacing: isFiniteNum(o.itemSpacing) ? o.itemSpacing : undefined,
+            paddingLeft: isFiniteNum(o.paddingLeft) ? o.paddingLeft : undefined,
+            paddingRight: isFiniteNum(o.paddingRight) ? o.paddingRight : undefined,
+            paddingTop: isFiniteNum(o.paddingTop) ? o.paddingTop : undefined,
+            paddingBottom: isFiniteNum(o.paddingBottom) ? o.paddingBottom : undefined,
+            children: children.length ? children : undefined,
+        };
+    }
+    warnings.push(`${path}: tipo desconocido "${type}".`);
+    return null;
+}
+
+function normalizeFigmaRenderNodes(parsed: unknown, warnings: string[]): FigmaRenderNode[] {
+    if (!parsed || typeof parsed !== 'object') return [];
+    const o = parsed as Record<string, unknown>;
+    const arr = Array.isArray(o.nodes) ? o.nodes : Array.isArray(parsed) ? (parsed as unknown[]) : [];
+    if (!Array.isArray(arr)) return [];
+    const out: FigmaRenderNode[] = [];
+    let i = 0;
+    for (const item of arr) {
+        const n = normalizeFigmaRenderNode(item, `nodes[${i}]`, warnings);
+        if (n) out.push(n);
+        i++;
+    }
+    return out;
+}
+
+/**
+ * Usa Gemini + catálogo REST de componentes del design system para producir un árbol de nodos Figma
+ * alineado al wireframe HTML (layout aproximado; INSTANCE solo con `componentKey` del listado).
+ */
+export async function generateFigmaNodesFromHtml(input: {
+    hifiHtml: string;
+    designSystemFileKey: string;
+    destinationFileKey: string;
+    token: string;
+}): Promise<GenerateFigmaNodesFromHtmlResult> {
+    const warnings: string[] = [];
+    if (!config.GEMINI_API_KEY?.trim()) {
+        throw new Error('GEMINI_API_KEY no configurada.');
+    }
+    const token = input.token.trim();
+    if (!token) throw new Error('FIGMA_ACCESS_TOKEN ausente en el servidor.');
+
+    const html = input.hifiHtml.trim().slice(0, MAX_HIFI_HTML_CHARS);
+    if (!html) {
+        return { nodes: [], warnings: ['HTML vacío.'] };
+    }
+
+    const components = await fetchFigmaFileComponentsList(input.designSystemFileKey, token);
+    if (!components.length) {
+        warnings.push('No se obtuvieron componentes del archivo del design system (¿publicados / token con scope file read?).');
+    }
+    const catalog = components.slice(0, MAX_COMPONENTS_IN_PROMPT).map((c) => ({
+        key: c.key,
+        name: c.name,
+        desc: c.description.slice(0, 200),
+    }));
+
+    const system = `Sos un asistente que traduce wireframes HTML (Tailwind-ish) a un árbol JSON de nodos para el plugin API de Figma.
+Reglas:
+- Devolvé SOLO JSON válido con forma exacta: { "nodes": [ ... ] } (sin markdown).
+- Tipos permitidos por nodo: FRAME, TEXT, RECTANGLE, INSTANCE.
+- Coordenadas x,y,width,height en px relativos al frame raíz (origen arriba-izquierda, y hacia abajo).
+- Usá INSTANCE solo cuando un bloque HTML corresponde claramente a un componente del catálogo; copiá el "key" exacto del catálogo en componentKey.
+- Si no hay match seguro, usá FRAME + TEXT + RECTANGLE para aproximar el layout del wireframe.
+- Profundidad máxima razonable (≤6 niveles); no más de 40 nodos en total.
+- Textos cortos en TEXT (placeholder si hace falta).
+- destinationFileKey del contexto es ${input.destinationFileKey} (solo referencia; los nodos van dentro de un frame destino ya creado).`;
+
+    const user = `Catálogo de componentes del design system (usar solo estos keys en INSTANCE):\n${JSON.stringify(catalog)}\n\nWireframe HTML:\n${html}`;
+
+    const model = genAI.getGenerativeModel({
+        model: config.GEMINI_MODEL || 'gemini-2.5-flash',
+        generationConfig: {
+            temperature: 0.15,
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+        },
+    });
+
+    const combined = `${system}\n\n---\n\n${user}`;
+    const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: combined }] }],
+    });
+    const fb = result.response.promptFeedback;
+    if (fb?.blockReason) {
+        throw new Error(`Gemini bloqueó el prompt: ${fb.blockReason}`);
+    }
+    const text = result.response.text();
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text.trim());
+    } catch {
+        try {
+            parsed = extractJsonObject(text);
+        } catch (e) {
+            const hint = (e as Error)?.message || String(e);
+            throw new Error(`Gemini no devolvió JSON parseable: ${hint}`);
+        }
+    }
+    const nodes = normalizeFigmaRenderNodes(parsed, warnings);
+    if (!nodes.length) {
+        warnings.push('El modelo no produjo nodos válidos; revisá el HTML o el catálogo de componentes.');
+    }
+    return { nodes, warnings };
+}
+
 export async function fetchFigmaScreenPngs(fileKey: string, screens: FigmaScreenMeta[], token: string): Promise<(Buffer | null)[]> {
     const ids = screens.map((s) => s.nodeId);
     const urls = await fetchFigmaPngRenderUrls(fileKey, ids, token);

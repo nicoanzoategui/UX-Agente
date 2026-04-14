@@ -16,7 +16,8 @@ function parseScreensBody(raw: unknown): FigmaBuildJobScreen[] | null {
         if (!item || typeof item !== 'object') return null;
         const o = item as Record<string, unknown>;
         if (typeof o.screenIndex !== 'number' || typeof o.name !== 'string') return null;
-        out.push({ screenIndex: o.screenIndex, name: o.name });
+        const hifiHtml = typeof o.hifiHtml === 'string' ? o.hifiHtml : undefined;
+        out.push({ screenIndex: o.screenIndex, name: o.name, ...(hifiHtml !== undefined ? { hifiHtml } : {}) });
     }
     return out.length ? out : null;
 }
@@ -28,6 +29,7 @@ function parseScreensBody(raw: unknown): FigmaBuildJobScreen[] | null {
 router.post('/figma-build-job', requireAuth, async (req, res) => {
     const body = req.body as {
         destinationUrl?: string;
+        designSystemUrl?: string;
         screens?: unknown;
         layout?: unknown;
     };
@@ -35,9 +37,10 @@ router.post('/figma-build-job', requireAuth, async (req, res) => {
     if (!destinationUrl) {
         return res.status(400).json({ error: 'destinationUrl es obligatorio.' });
     }
+    const designSystemUrl = String(body.designSystemUrl ?? '').trim();
     const screens = parseScreensBody(body.screens);
     if (!screens) {
-        return res.status(400).json({ error: 'screens debe ser un array de { screenIndex, name }.' });
+        return res.status(400).json({ error: 'screens debe ser un array de { screenIndex, name, hifiHtml? }.' });
     }
     let layout: { frameWidth?: number; frameHeight?: number; gap?: number; startX?: number; startY?: number } = {};
     if (body.layout && typeof body.layout === 'object') {
@@ -55,6 +58,7 @@ router.post('/figma-build-job', requireAuth, async (req, res) => {
         void purgeExpiredFigmaBuildJobs();
         const { jobId, fetchSecret, expiresAt } = await createFigmaBuildJob({
             destinationUrl,
+            designSystemUrl: designSystemUrl || undefined,
             screens,
             layout,
         });

@@ -60,6 +60,10 @@
         background: #fef2f2;
         color: #991b1b;
       }
+      .warn {
+        background: #fffbeb;
+        color: #92400e;
+      }
       .muted {
         color: #6b7280;
         font-size: 11px;
@@ -68,12 +72,17 @@
     </style>
   </head>
   <body>
-    <p class="muted">Pegá los datos del paso Figma en la web. El job se consume una sola vez.</p>
+    <p class="muted">
+      Pegá los datos del paso Figma en la web. El job se consume una sola vez.       Si el job incluye wireframes HiFi, el campo «Render secret» debe coincidir con
+      <code>FIGMA_PLUGIN_RENDER_SECRET</code> en el servidor (en producción es obligatorio).
+    </p>
     <label for="apiBase">URL base del API (sin barra final)</label>
     <input id="apiBase" type="text" placeholder="https://tu-api.railway.app o http://localhost:3001" autocomplete="off" />
+    <label for="renderSecret">Render secret (opcional en local; obligatorio en prod si hay HiFi)</label>
+    <input id="renderSecret" type="password" placeholder="Mismo valor que FIGMA_PLUGIN_RENDER_SECRET en Railway" autocomplete="off" />
     <label for="jobId">Job ID</label>
     <input id="jobId" type="text" autocomplete="off" />
-    <label for="secret">Secret</label>
+    <label for="secret">Job secret</label>
     <input id="secret" type="password" autocomplete="off" />
     <div class="row">
       <button type="button" class="primary" id="run">Crear frames</button>
@@ -82,6 +91,7 @@
     <div id="status"></div>
     <script>
       const apiBaseEl = document.getElementById('apiBase');
+      const renderSecretEl = document.getElementById('renderSecret');
       const jobIdEl = document.getElementById('jobId');
       const secretEl = document.getElementById('secret');
       const statusEl = document.getElementById('status');
@@ -96,6 +106,7 @@
         if (!m) return;
         if (m.type === 'init') {
           if (m.apiBase) apiBaseEl.value = m.apiBase;
+          if (m.renderSecret) renderSecretEl.value = m.renderSecret;
           return;
         }
         if (m.type === 'error') {
@@ -103,7 +114,9 @@
           return;
         }
         if (m.type === 'done') {
-          setStatus('Listo: ' + m.count + ' frame(s) creado(s).', 'ok');
+          let t = 'Listo: ' + m.count + ' frame(s) creado(s).';
+          if (m.warnings) t += '\n\n' + m.warnings;
+          setStatus(t, m.warnings ? 'warn' : 'ok');
         }
       };
 
@@ -114,6 +127,7 @@
             pluginMessage: {
               type: 'save-api-base',
               apiBase: apiBaseEl.value.trim(),
+              renderSecret: renderSecretEl.value.trim(),
             },
           },
           '*'
@@ -123,6 +137,7 @@
             pluginMessage: {
               type: 'build',
               apiBase: apiBaseEl.value.trim(),
+              renderSecret: renderSecretEl.value.trim(),
               jobId: jobIdEl.value.trim(),
               secret: secretEl.value.trim(),
             },

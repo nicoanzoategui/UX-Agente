@@ -6,9 +6,10 @@
   "ui": "ui.html",
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
+  "permissions": ["teamlibrary"],
   "networkAccess": {
     "allowedDomains": ["*"],
-    "reasoning": "Descarga un job efímero del backend UX Agente (URL base configurable en el plugin) para crear frames en el archivo destino.",
+    "reasoning": "Descarga jobs y llama al API de render (Gemini + Figma REST) desde la URL base configurable.",
     "devAllowedDomains": ["http://localhost:3001", "http://127.0.0.1:3001"]
   }
 }

@@ -12,18 +12,23 @@ const DEFAULT_DEST_URL =
 
 const PUBLIC_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-function screensForFigmaBuildJob(wf: WorkflowSession): { screenIndex: number; name: string }[] {
+function screensForFigmaBuildJob(wf: WorkflowSession): { screenIndex: number; name: string; hifiHtml?: string }[] {
+    const html = wf.hifiWireframesHtml || [];
     const meta = wf.figmaScreensMeta;
     if (meta?.length) {
-        return meta.map((s) => ({
-            screenIndex: s.screenIndex,
-            name: (s.name || `Pantalla ${s.screenIndex}`).trim() || `Pantalla ${s.screenIndex}`,
-        }));
+        return meta.map((s) => {
+            const h = html[s.screenIndex - 1]?.trim();
+            const base = {
+                screenIndex: s.screenIndex,
+                name: (s.name || `Pantalla ${s.screenIndex}`).trim() || `Pantalla ${s.screenIndex}`,
+            };
+            return h ? { ...base, hifiHtml: h } : base;
+        });
     }
-    const html = wf.hifiWireframesHtml || [];
-    return html.map((_, i) => ({
+    return html.map((h, i) => ({
         screenIndex: i + 1,
         name: `Pantalla ${i + 1}`,
+        hifiHtml: h.trim(),
     }));
 }
 
@@ -86,7 +91,11 @@ export default function FigmaDesignPage() {
         }
         setBuildJobBusy(true);
         try {
-            const r = await api.createFigmaBuildJob({ destinationUrl: dest, screens });
+            const r = await api.createFigmaBuildJob({
+                destinationUrl: dest,
+                designSystemUrl: designSystemUrl.trim(),
+                screens,
+            });
             setFigmaBuildJob({ jobId: r.jobId, fetchSecret: r.fetchSecret, expiresAt: r.expiresAt });
             toast('Job creado. Ejecutá el plugin en Figma con estos datos (un solo uso).', 'success');
         } catch (e) {
@@ -270,7 +279,9 @@ export default function FigmaDesignPage() {
                     <h2 className="text-lg font-semibold text-gray-900 mb-2">Crear frames con el plugin</h2>
                     <p className="text-sm text-gray-700 mb-3">
                         Abrí el archivo destino en Figma (mismo link que arriba). Generá un job: el plugin lo descarga una
-                        vez y coloca frames en fila. URL base del API para el plugin:{' '}
+                        vez y coloca frames en fila; si hay wireframes HiFi, el plugin llama a{' '}
+                        <code className="text-xs bg-white px-1 rounded border border-purple-200">/api/figma-render-screen</code>{' '}
+                        (en producción definí <code className="text-xs bg-white px-1 rounded border border-purple-200">FIGMA_PLUGIN_RENDER_SECRET</code> en el backend y el mismo valor en el campo «Render secret» del plugin). URL base del API:{' '}
                         <code className="text-xs bg-white px-1 rounded border border-purple-200">{PUBLIC_API_URL}</code>
                     </p>
                     <button

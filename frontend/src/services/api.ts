@@ -401,7 +401,8 @@ export const api = {
     /** Job de un solo uso para que el plugin de Figma cree frames en el archivo abierto. */
     createFigmaBuildJob: (body: {
         destinationUrl: string;
-        screens: { screenIndex: number; name: string }[];
+        designSystemUrl?: string;
+        screens: { screenIndex: number; name: string; hifiHtml?: string }[];
         layout?: Partial<{
             frameWidth: number;
             frameHeight: number;

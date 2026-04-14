@@ -68,6 +68,12 @@ export const config = {
      */
     FIGMA_PLUGIN_CORS_ORIGINS: (process.env.FIGMA_PLUGIN_CORS_ORIGINS || '').trim(),
 
+    /**
+     * Secreto para POST /api/figma-render-screen (plugin Figma; sin cookie de sesión).
+     * En producción debería estar definido; el plugin envía el mismo valor en X-UX-Agent-Figma-Render-Secret.
+     */
+    FIGMA_PLUGIN_RENDER_SECRET: (process.env.FIGMA_PLUGIN_RENDER_SECRET || '').trim(),
+
     TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL!,
     TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
 

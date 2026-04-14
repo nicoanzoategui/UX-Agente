@@ -10,6 +10,23 @@ const DEFAULT_DS_URL =
 const DEFAULT_DEST_URL =
     'https://www.figma.com/design/Jv8IIPGPeMs9aBEKXwt1sv/Archivo-base?node-id=0-1&p=f&t=1xwxcBW78QqL1VIY-0';
 
+const PUBLIC_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+function screensForFigmaBuildJob(wf: WorkflowSession): { screenIndex: number; name: string }[] {
+    const meta = wf.figmaScreensMeta;
+    if (meta?.length) {
+        return meta.map((s) => ({
+            screenIndex: s.screenIndex,
+            name: (s.name || `Pantalla ${s.screenIndex}`).trim() || `Pantalla ${s.screenIndex}`,
+        }));
+    }
+    const html = wf.hifiWireframesHtml || [];
+    return html.map((_, i) => ({
+        screenIndex: i + 1,
+        name: `Pantalla ${i + 1}`,
+    }));
+}
+
 export default function FigmaDesignPage() {
     const navigate = useNavigate();
     const toast = useToast();
@@ -18,6 +35,12 @@ export default function FigmaDesignPage() {
     const [logs, setLogs] = useState<string[]>([]);
     const [designSystemUrl, setDesignSystemUrl] = useState(DEFAULT_DS_URL);
     const [destinationUrl, setDestinationUrl] = useState(DEFAULT_DEST_URL);
+    const [figmaBuildJob, setFigmaBuildJob] = useState<{
+        jobId: string;
+        fetchSecret: string;
+        expiresAt: string;
+    } | null>(null);
+    const [buildJobBusy, setBuildJobBusy] = useState(false);
 
     const idx = wf?.selectedSolutionIndex;
     const solution = wf && idx != null && idx >= 1 && idx <= 3 ? wf.ideationSolutions?.[idx - 1] : undefined;
@@ -39,6 +62,40 @@ export default function FigmaDesignPage() {
         setDesignSystemUrl(w.figmaDesignSystemUrl?.trim() || DEFAULT_DS_URL);
         setDestinationUrl(w.figmaDestinationUrl?.trim() || DEFAULT_DEST_URL);
     }, [navigate]);
+
+    async function copyText(label: string, value: string) {
+        try {
+            await navigator.clipboard.writeText(value);
+            toast(`${label} copiado.`, 'success');
+        } catch {
+            toast('No se pudo copiar al portapapeles.', 'error');
+        }
+    }
+
+    async function createPluginBuildJob() {
+        if (!wf) return;
+        const dest = destinationUrl.trim();
+        if (!dest) {
+            toast('Completá el link del archivo destino en Figma.', 'error');
+            return;
+        }
+        const screens = screensForFigmaBuildJob(wf);
+        if (!screens.length) {
+            toast('No hay pantallas para crear.', 'error');
+            return;
+        }
+        setBuildJobBusy(true);
+        try {
+            const r = await api.createFigmaBuildJob({ destinationUrl: dest, screens });
+            setFigmaBuildJob({ jobId: r.jobId, fetchSecret: r.fetchSecret, expiresAt: r.expiresAt });
+            toast('Job creado. Ejecutá el plugin en Figma con estos datos (un solo uso).', 'success');
+        } catch (e) {
+            const msg = e instanceof ApiError ? e.message : 'No se pudo crear el job para Figma.';
+            toast(msg, 'error');
+        } finally {
+            setBuildJobBusy(false);
+        }
+    }
 
     async function generateInFigma(opts?: { auto?: boolean }) {
         if (!wf || !solution || !wf.analysis || !wf.hifiWireframesHtml?.length) return;
@@ -116,10 +173,10 @@ export default function FigmaDesignPage() {
                 <div className="mb-6">
                     <h1 className="text-3xl font-bold text-gray-900">5. Figma (desde wireframes)</h1>
                     <p className="text-gray-600 mt-1">
-                        El backend resuelve frames reales vía API REST de Figma cuando configurás{' '}
-                        <code className="text-xs bg-gray-100 px-1 rounded">FIGMA_ACCESS_TOKEN</code> en el servidor; si no,
-                        quedan nodeId en modo <code className="text-xs bg-gray-100 px-1 rounded">pending:*</code> y el TSX
-                        siguiente usa metadata + wireframes HiFi.
+                        El backend puede mapear frames vía API REST si configurás{' '}
+                        <code className="text-xs bg-gray-100 px-1 rounded">FIGMA_ACCESS_TOKEN</code>.                         Para crear frames vacíos en el archivo destino, generá un job y
+                        ejecutá el plugin local en <code className="text-xs bg-gray-100 px-1 rounded">figma-plugin/</code>{' '}
+                        (Figma → Plugins → Development → Import plugin from manifest).
                     </p>
                 </div>
 
@@ -208,6 +265,54 @@ export default function FigmaDesignPage() {
                         ) : null}
                     </div>
                 ) : null}
+
+                <div className="mb-6 border border-purple-200 rounded-lg p-4 bg-purple-50/60">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-2">Crear frames con el plugin</h2>
+                    <p className="text-sm text-gray-700 mb-3">
+                        Abrí el archivo destino en Figma (mismo link que arriba). Generá un job: el plugin lo descarga una
+                        vez y coloca frames en fila. URL base del API para el plugin:{' '}
+                        <code className="text-xs bg-white px-1 rounded border border-purple-200">{PUBLIC_API_URL}</code>
+                    </p>
+                    <button
+                        type="button"
+                        disabled={buildJobBusy || busy || !wf}
+                        onClick={() => void createPluginBuildJob()}
+                        className="gradient-bg text-white px-6 py-2 rounded-lg font-semibold hover:opacity-90 ux-focus disabled:opacity-50 mb-4"
+                    >
+                        {buildJobBusy ? 'Creando job…' : 'Generar job para el plugin'}
+                    </button>
+                    {figmaBuildJob ? (
+                        <div className="text-sm space-y-2 bg-white rounded-md p-3 border border-purple-100">
+                            <p className="text-xs text-gray-500">Vence: {new Date(figmaBuildJob.expiresAt).toLocaleString()}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-gray-700 font-medium">Job ID</span>
+                                <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all flex-1 min-w-0">
+                                    {figmaBuildJob.jobId}
+                                </code>
+                                <button
+                                    type="button"
+                                    onClick={() => void copyText('Job ID', figmaBuildJob.jobId)}
+                                    className="text-xs text-purple-700 underline ux-focus"
+                                >
+                                    Copiar
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-gray-700 font-medium">Secret</span>
+                                <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all flex-1 min-w-0">
+                                    {figmaBuildJob.fetchSecret}
+                                </code>
+                                <button
+                                    type="button"
+                                    onClick={() => void copyText('Secret', figmaBuildJob.fetchSecret)}
+                                    className="text-xs text-purple-700 underline ux-focus"
+                                >
+                                    Copiar
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
                     <Link

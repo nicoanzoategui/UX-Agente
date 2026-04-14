@@ -35,7 +35,7 @@ Sin esto, el healthcheck puede pasar al inicio pero los datos no se conservan en
 | `TURSO_DATABASE_URL` | `libsql://…` |
 | `TURSO_AUTH_TOKEN` | Token Turso |
 
-Opcional: `GEMINI_MODEL`, `ALLOWED_EMAILS`, `ALLOWED_EMAIL_DOMAIN`, `TRUST_PROXY=1` (si hace falta en otro hosting; con Railway suele bastar `RAILWAY_ENVIRONMENT` para trust proxy).
+Opcional: `GEMINI_MODEL`, `ALLOWED_EMAILS`, `ALLOWED_EMAIL_DOMAIN`, `FIGMA_ACCESS_TOKEN`, `FIGMA_PLUGIN_CORS_ORIGINS` (el backend ya permite `https://www.figma.com` para el plugin; solo si necesitás orígenes extra), `TRUST_PROXY=1` (si hace falta en otro hosting; con Railway suele bastar `RAILWAY_ENVIRONMENT` para trust proxy).
 
 4. Tras el deploy, copiá la URL pública del servicio (ej. `https://tu-api.up.railway.app`).
 

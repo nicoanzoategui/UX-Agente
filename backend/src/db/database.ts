@@ -93,6 +93,16 @@ export async function initDatabase() {
   `);
 
     await db.execute(`
+    CREATE TABLE IF NOT EXISTS figma_build_jobs (
+      id TEXT PRIMARY KEY,
+      fetch_secret TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL
+    )
+  `);
+
+    await db.execute(`
     CREATE TABLE IF NOT EXISTS kickoff_wireframes (
       id TEXT PRIMARY KEY,
       card_id TEXT NOT NULL,

@@ -62,6 +62,12 @@ export const config = {
      */
     FIGMA_ACCESS_TOKEN: (process.env.FIGMA_ACCESS_TOKEN || '').trim(),
 
+    /**
+     * Orígenes extra para CORS (credenciales). El plugin de Figma hace fetch desde `https://www.figma.com`.
+     * Lista separada por comas; por defecto se añade `https://www.figma.com` en `corsAllowedOrigins()`.
+     */
+    FIGMA_PLUGIN_CORS_ORIGINS: (process.env.FIGMA_PLUGIN_CORS_ORIGINS || '').trim(),
+
     TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL!,
     TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
 
@@ -127,6 +133,12 @@ export function corsAllowedOrigins(): string[] {
             /* URL inválida: solo se usa el string tal cual */
         }
     }
+    const figmaExtra = (config.FIGMA_PLUGIN_CORS_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    for (const o of figmaExtra) set.add(o);
+    set.add('https://www.figma.com');
     return Array.from(set);
 }
 

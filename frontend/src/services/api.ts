@@ -398,6 +398,23 @@ export const api = {
             figmaApiUsed: boolean;
         }>,
 
+    /** Job de un solo uso para que el plugin de Figma cree frames en el archivo abierto. */
+    createFigmaBuildJob: (body: {
+        destinationUrl: string;
+        screens: { screenIndex: number; name: string }[];
+        layout?: Partial<{
+            frameWidth: number;
+            frameHeight: number;
+            gap: number;
+            startX: number;
+            startY: number;
+        }>;
+    }) =>
+        fetchAPI('/api/figma-build-job', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }) as Promise<{ success: boolean; jobId: string; fetchSecret: string; expiresAt: string }>,
+
     generateTsxFromFigma: (body: {
         initiativeName: string;
         jiraTicket: string;

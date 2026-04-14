@@ -10,6 +10,7 @@ import { apiRateLimit } from './middleware/api-rate-limit.js';
 import agentRoutes from './routes/agent.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import cardsRoutes from './routes/cards.routes.js';
+import figmaBuildRoutes from './routes/figma-build.routes.js';
 
 assertProductionAuthConfig();
 
@@ -83,6 +84,7 @@ app.use('/api', apiRateLimit);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/cards', cardsRoutes);
+app.use('/api', figmaBuildRoutes);
 app.use('/api', agentRoutes);
 
 app.get('/health', async (_req, res) => {

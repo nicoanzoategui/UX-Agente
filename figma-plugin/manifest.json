@@ -1,0 +1,14 @@
+{
+  "name": "UX Agente — Crear frames",
+  "id": "f8c3e21a-9b0d-4c7e-a2f1-3d8e5c6b7a90",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Descarga un job efímero del backend UX Agente (URL base configurable en el plugin) para crear frames en el archivo destino.",
+    "devAllowedDomains": ["http://localhost:3001", "http://127.0.0.1:3001"]
+  }
+}

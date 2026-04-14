@@ -29,6 +29,7 @@ export default function UserFlowPage() {
     const [busy, setBusy] = useState(false);
     const [genBusy, setGenBusy] = useState(false);
     const [approveBusy, setApproveBusy] = useState(false);
+    const [expandedView, setExpandedView] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const idx = wf?.selectedSolutionIndex;
     const solution = wf && idx != null && idx >= 1 && idx <= 3 ? wf.ideationSolutions?.[idx - 1] : undefined;
@@ -250,10 +251,15 @@ export default function UserFlowPage() {
                     </button>
                 </div>
 
-                <div className="border border-gray-200 rounded-lg overflow-hidden mb-8 bg-gray-50">
-                    <div className="bg-white p-4 overflow-x-auto min-h-[320px] relative">
+                <div className="border border-gray-200 rounded-lg overflow-hidden mb-8 bg-gray-50 relative">
+                    <div className="bg-white p-4 overflow-auto min-h-[320px] relative">
                         {svg.trim() ? (
-                            <div className={`max-w-full ${genBusy ? 'opacity-40 pointer-events-none' : ''}`} dangerouslySetInnerHTML={{ __html: svg }} />
+                            <div
+                                className={`max-w-full [&_svg]:h-auto [&_svg]:max-w-none ${
+                                    genBusy ? 'opacity-40 pointer-events-none' : ''
+                                }`}
+                                dangerouslySetInnerHTML={{ __html: svg }}
+                            />
                         ) : !genBusy ? (
                             <p className="text-sm text-gray-500 text-center py-16">No hay diagrama todavía.</p>
                         ) : null}
@@ -268,7 +274,41 @@ export default function UserFlowPage() {
                             </div>
                         ) : null}
                     </div>
+                    {svg.trim() ? (
+                        <button
+                            type="button"
+                            onClick={() => setExpandedView(true)}
+                            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20 bg-purple-600 text-white rounded-full w-10 h-10 shadow-lg hover:bg-purple-700 ux-focus"
+                            aria-label="Expandir diagrama"
+                            title="Expandir"
+                        >
+                            ↗
+                        </button>
+                    ) : null}
                 </div>
+
+                {expandedView ? (
+                    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-[95vw] h-[92vh] flex flex-col overflow-hidden">
+                            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                                <p className="font-semibold text-gray-900">User flow expandido</p>
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedView(false)}
+                                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 ux-focus"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-auto p-4 bg-gray-50">
+                                <div
+                                    className="inline-block bg-white border border-gray-200 rounded p-3 [&_svg]:h-auto [&_svg]:max-w-none"
+                                    dangerouslySetInnerHTML={{ __html: svg }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
 
                 <div className="border border-gray-200 rounded-lg overflow-hidden mb-8">
                     <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">

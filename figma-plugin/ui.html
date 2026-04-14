@@ -95,6 +95,7 @@
       const jobIdEl = document.getElementById('jobId');
       const secretEl = document.getElementById('secret');
       const statusEl = document.getElementById('status');
+      const runBtn = document.getElementById('run');
 
       function setStatus(text, kind) {
         statusEl.textContent = text || '';
@@ -110,18 +111,36 @@
           return;
         }
         if (m.type === 'error') {
+          runBtn.disabled = false;
+          runBtn.textContent = 'Crear frames';
           setStatus(m.text || 'Error', 'err');
           return;
         }
         if (m.type === 'done') {
+          runBtn.disabled = false;
+          runBtn.textContent = 'Crear frames';
           let t = 'Listo: ' + m.count + ' frame(s) creado(s).';
           if (m.warnings) t += '\n\n' + m.warnings;
           setStatus(t, m.warnings ? 'warn' : 'ok');
+          return;
+        }
+        if (m.type === 'build-start') {
+          runBtn.disabled = true;
+          runBtn.textContent = 'Importando…';
+          return;
+        }
+        if (m.type === 'build-end') {
+          runBtn.disabled = false;
+          runBtn.textContent = 'Crear frames';
+          return;
         }
       };
 
-      document.getElementById('run').onclick = () => {
+      runBtn.onclick = () => {
+        if (runBtn.disabled) return;
         setStatus('');
+        runBtn.disabled = true;
+        runBtn.textContent = 'Importando…';
         /* Un solo mensaje: evita carreras entre save y build; el job solo se consume en el handler build del main. */
         parent.postMessage(
           {

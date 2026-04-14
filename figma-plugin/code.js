@@ -154,10 +154,7 @@ figma.ui.onmessage = async (msg) => {
   if (msg.type !== 'build') return;
 
   if (figmaBuildJobFetchInFlight) {
-    figma.ui.postMessage({
-      type: 'error',
-      text: 'Ya hay una importación en curso. Esperá a que termine o cerrá y volvé a abrir el plugin.',
-    });
+    figma.notify('Importación en curso; esperá a que termine.');
     return;
   }
 
@@ -171,6 +168,7 @@ figma.ui.onmessage = async (msg) => {
   }
 
   figmaBuildJobFetchInFlight = true;
+  figma.ui.postMessage({ type: 'build-start' });
   try {
     try {
       await figma.clientStorage.setAsync('ux_agente_api_base', apiBase);
@@ -282,5 +280,6 @@ figma.ui.onmessage = async (msg) => {
     figma.ui.postMessage({ type: 'error', text: err });
   } finally {
     figmaBuildJobFetchInFlight = false;
+    figma.ui.postMessage({ type: 'build-end' });
   }
 };

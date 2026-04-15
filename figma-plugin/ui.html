@@ -75,7 +75,8 @@
     <p class="muted">
       Pegá los datos del paso Figma en la web. El job se consume una sola vez. Con varias pantallas HiFi, la importación puede tardar varios minutos (cada una llama al
       servidor con Gemini y Figma); el estado muestra el avance por pantalla. El campo «Render secret» debe coincidir con
-      <code>FIGMA_PLUGIN_RENDER_SECRET</code> en el servidor (en producción es obligatorio si hay HiFi).
+      <code>FIGMA_PLUGIN_RENDER_SECRET</code> en el servidor (en producción es obligatorio si hay HiFi). Los componentes del design system deben estar
+      <strong>publicados en la librería del equipo</strong> para que Figma pueda instanciarlos por key desde otro archivo.
     </p>
     <label for="apiBase">URL base del API (sin barra final)</label>
     <input id="apiBase" type="text" placeholder="https://tu-api.railway.app o http://localhost:3001" autocomplete="off" />

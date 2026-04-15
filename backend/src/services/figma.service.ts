@@ -371,6 +371,64 @@ type FigmaComponentsApiMeta = {
 
 const MAX_HIFI_HTML_CHARS = 100_000;
 const MAX_COMPONENTS_IN_PROMPT = 220;
+/** Líneas TSV prioritarias al inicio del prompt (nombres UI primero). */
+const MAX_COMPONENTS_TSV_LINES = 100;
+
+function scoreDsNameRelevance(name: string, desc: string): number {
+    const blob = `${name} ${desc}`.toLowerCase();
+    const hot = [
+        'button',
+        'btn',
+        'input',
+        'field',
+        'textfield',
+        'textarea',
+        'select',
+        'checkbox',
+        'radio',
+        'toggle',
+        'switch',
+        'card',
+        'modal',
+        'dialog',
+        'label',
+        'form',
+        'badge',
+        'chip',
+        'tab',
+        'avatar',
+        'dropdown',
+        'menu',
+        'search',
+        'icon',
+        'link',
+        'alert',
+        'toast',
+        'banner',
+        'header',
+        'footer',
+        'primary',
+        'secondary',
+        'submit',
+    ];
+    let s = 0;
+    for (const h of hot) {
+        if (blob.includes(h)) s += 3;
+    }
+    return s;
+}
+
+function countFigmaRenderInstances(nodes: FigmaRenderNode[]): number {
+    let n = 0;
+    const walk = (node: FigmaRenderNode): void => {
+        if (node.type === 'INSTANCE') n++;
+        if (node.type === 'FRAME' && node.children) {
+            for (const ch of node.children) walk(ch);
+        }
+    };
+    for (const root of nodes) walk(root);
+    return n;
+}
 
 /** El aviso de catálogo vía GET /files se emite una vez por design system (evita 8 líneas iguales en un job). */
 const designSystemCatalogSourceNotified = new Set<string>();
@@ -735,24 +793,56 @@ export async function generateFigmaNodesFromHtml(input: {
     }
 
     const components = await loadDesignSystemComponentsForRender(input.designSystemFileKey, token, warnings);
-    const catalog = components.slice(0, MAX_COMPONENTS_IN_PROMPT).map((c) => ({
+
+    const sortedForPrompt = [...components].sort((a, b) => {
+        const sb = scoreDsNameRelevance(b.name, b.description);
+        const sa = scoreDsNameRelevance(a.name, a.description);
+        if (sb !== sa) return sb - sa;
+        return a.name.localeCompare(b.name);
+    });
+    const capped = sortedForPrompt.slice(0, MAX_COMPONENTS_IN_PROMPT);
+    const catalog = capped.map((c) => ({
         key: c.key,
         name: c.name,
         desc: c.description.slice(0, 200),
     }));
 
-    const system = `Sos un asistente que traduce wireframes HTML (Tailwind-ish) a un árbol JSON de nodos para el plugin API de Figma.
-Reglas:
-- Devolvé SOLO JSON válido con forma exacta: { "nodes": [ ... ] } (sin markdown, sin comas finales).
-- Tipos permitidos por nodo: FRAME, TEXT, RECTANGLE, INSTANCE (siempre incluí "type" en cada nodo; no lo dejes vacío).
-- Coordenadas x,y,width,height deben ser números JSON (no strings). Origen arriba-izquierda, y hacia abajo.
-- Cada TEXT debe incluir "text" (string) y números "x", "y" (usá 0 si no importa la posición exacta).
-- Usá INSTANCE solo cuando un bloque HTML corresponde claramente a un componente del catálogo; copiá el "key" exacto del catálogo en componentKey.
-- Si no hay match seguro, usá FRAME + TEXT + RECTANGLE para aproximar el layout del wireframe.
-- Profundidad máxima razonable (≤6 niveles); no más de 40 nodos en total.
-- destinationFileKey del contexto es ${input.destinationFileKey} (solo referencia; los nodos van dentro de un frame destino ya creado).`;
+    const tsvLines = capped
+        .slice(0, MAX_COMPONENTS_TSV_LINES)
+        .map((c) => {
+            const desc = c.description.replace(/\s+/g, ' ').trim().slice(0, 120);
+            const safeName = c.name.replace(/\t/g, ' ').replace(/\n/g, ' ');
+            return `${c.key}\t${safeName}\t${desc}`;
+        })
+        .join('\n');
 
-    const user = `Catálogo de componentes del design system (usar solo estos keys en INSTANCE):\n${JSON.stringify(catalog)}\n\nWireframe HTML:\n${html}`;
+    const system = `Sos experto en design systems en Figma. Traducís wireframe HTML (clases Tailwind-ish) a un árbol JSON que un plugin va a instanciar DENTRO de un frame ya creado.
+
+PRIORIDAD ABSOLUTA — REUTILIZAR EL DESIGN SYSTEM:
+- Por cada pieza de UI (botón de pago, campo de tarjeta, label, card contenedora, icono con wrapper, etc.) buscá en el catálogo (TSV + JSON) el componente cuyo nombre o descripción mejor coincida y usá type "INSTANCE" con "componentKey" EXACTAMENTE igual al valor de la primera columna del TSV o al campo "key" del JSON. No inventes keys.
+- Construí la jerarquía con FRAMEs que agrupen INSTANCEs (layout vertical/horizontal cuando aplique).
+- TEXT: solo para títulos o copy suelta que no tenga un componente de texto/label en el catálogo; siempre con "text", "x", "y" numéricos.
+- RECTANGLE: solo rellenos o separadores cuando no exista componente equivalente en el catálogo.
+
+FORMATO DE SALIDA:
+- SOLO JSON válido: { "nodes": [ ... ] } sin markdown ni comas finales.
+- Tipos: FRAME, TEXT, RECTANGLE, INSTANCE. Siempre incluí "type" en cada nodo.
+- x,y,width,height en px como números JSON (no strings).
+- Máximo ~40 nodos y ~6 niveles de profundidad.
+- destinationFileKey (referencia): ${input.destinationFileKey}`;
+
+    const user = `## Catálogo del design system — leé primero el TSV
+Cada fila es: componentKey TAB nombre TAB descripción corta.
+Para INSTANCE usá ese componentKey literal (primera columna). El JSON debajo repite las mismas entradas.
+
+TSV:
+${tsvLines || '(sin componentes en catálogo)'}
+
+## Catálogo JSON
+${JSON.stringify(catalog)}
+
+## Wireframe HTML
+${html}`;
 
     const model = genAI.getGenerativeModel({
         model: config.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -812,6 +902,10 @@ ${text.slice(0, 14_000)}`;
     const nodes = normalizeFigmaRenderNodes(parsed, warnings);
     if (!nodes.length) {
         warnings.push('El modelo no produjo nodos válidos; revisá el HTML o el catálogo de componentes.');
+    } else if (components.length > 0 && countFigmaRenderInstances(nodes) === 0) {
+        warnings.push(
+            'El resultado no usa ningún INSTANCE del design system (solo primitivas). Los componentes deben estar publicados en la librería del equipo para que el plugin pueda importarlos por key; revisá también que los nombres del catálogo coincidan con el HTML.'
+        );
     }
     return { nodes, warnings };
 }

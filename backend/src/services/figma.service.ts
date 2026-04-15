@@ -771,6 +771,69 @@ function normalizeFigmaRenderNodes(parsed: unknown, warnings: string[]): FigmaRe
 }
 
 /**
+ * Alinea componentKey de INSTANCE al catálogo real (Gemini suele truncar o alterar la key).
+ * Si no hay match, convierte a RECTANGLE para evitar fallos silenciosos en importComponentByKeyAsync.
+ */
+function resolveComponentKey(raw: string, validKeys: Set<string>): string | null {
+    const kt = raw.trim();
+    if (!kt) return null;
+    if (validKeys.has(kt)) return kt;
+    const noSpace = kt.replace(/\s+/g, '');
+    if (validKeys.has(noSpace)) return noSpace;
+
+    const byPrefix = [...validKeys].filter((vk) => vk.startsWith(kt));
+    if (byPrefix.length === 1) return byPrefix[0];
+    if (byPrefix.length > 1) {
+        // kt suele ser key truncada: preferir la key del catálogo más larga que siga siendo prefijo.
+        byPrefix.sort((a, b) => b.length - a.length);
+        return byPrefix[0];
+    }
+
+    const compact = kt.replace(/-/g, '').toLowerCase();
+    for (const vk of validKeys) {
+        if (vk.replace(/-/g, '').toLowerCase() === compact) return vk;
+    }
+    return null;
+}
+
+function sanitizeFigmaRenderTreeInstanceKeys(
+    nodes: FigmaRenderNode[],
+    validKeys: Set<string>,
+    warnings: string[]
+): FigmaRenderNode[] {
+    const mapNode = (node: FigmaRenderNode): FigmaRenderNode => {
+        if (node.type === 'INSTANCE') {
+            const resolved = resolveComponentKey(node.componentKey, validKeys);
+            if (resolved) {
+                if (resolved !== node.componentKey.trim()) {
+                    warnings.push(
+                        `INSTANCE: se corrigió componentKey truncada o con espacios (usar siempre la key COMPLETA del TSV).`
+                    );
+                }
+                return { ...node, componentKey: resolved };
+            }
+            warnings.push(
+                `INSTANCE descartada: key "${node.componentKey.slice(0, 56)}…" no coincide con ninguna del catálogo.`
+            );
+            return {
+                type: 'RECTANGLE',
+                x: node.x,
+                y: node.y,
+                width: Math.max(8, node.width ?? 96),
+                height: Math.max(8, node.height ?? 32),
+                name: node.name ?? 'Key no en catálogo',
+                fills: { r: 0.98, g: 0.88, b: 0.88 },
+            };
+        }
+        if (node.type === 'FRAME' && node.children?.length) {
+            return { ...node, children: node.children.map(mapNode) };
+        }
+        return node;
+    };
+    return nodes.map(mapNode);
+}
+
+/**
  * Usa Gemini + catálogo REST de componentes del design system para producir un árbol de nodos Figma
  * alineado al wireframe HTML (layout aproximado; INSTANCE solo con `componentKey` del listado).
  */
@@ -819,7 +882,7 @@ export async function generateFigmaNodesFromHtml(input: {
     const system = `Sos experto en design systems en Figma. Traducís wireframe HTML (clases Tailwind-ish) a un árbol JSON que un plugin va a instanciar DENTRO de un frame ya creado.
 
 PRIORIDAD ABSOLUTA — REUTILIZAR EL DESIGN SYSTEM:
-- Por cada pieza de UI (botón de pago, campo de tarjeta, label, card contenedora, icono con wrapper, etc.) buscá en el catálogo (TSV + JSON) el componente cuyo nombre o descripción mejor coincida y usá type "INSTANCE" con "componentKey" EXACTAMENTE igual al valor de la primera columna del TSV o al campo "key" del JSON. No inventes keys.
+- Por cada pieza de UI (botón de pago, campo de tarjeta, label, card contenedora, icono con wrapper, etc.) buscá en el catálogo (TSV + JSON) el componente cuyo nombre o descripción mejor coincida y usá type "INSTANCE" con "componentKey" EXACTAMENTE igual al valor de la primera columna del TSV o al campo "key" del JSON. La key suele ser un hash largo: copiá la cadena COMPLETA carácter por carácter, sin truncar ni resumir. No inventes keys.
 - Construí la jerarquía con FRAMEs que agrupen INSTANCEs (layout vertical/horizontal cuando aplique).
 - TEXT: solo para títulos o copy suelta que no tenga un componente de texto/label en el catálogo; siempre con "text", "x", "y" numéricos.
 - RECTANGLE: solo rellenos o separadores cuando no exista componente equivalente en el catálogo.
@@ -899,7 +962,9 @@ ${text.slice(0, 14_000)}`;
             throw new Error(`Gemini no devolvió JSON parseable: ${hint}`);
         }
     }
-    const nodes = normalizeFigmaRenderNodes(parsed, warnings);
+    const nodesRaw = normalizeFigmaRenderNodes(parsed, warnings);
+    const validKeys = new Set(components.map((c) => c.key));
+    const nodes = sanitizeFigmaRenderTreeInstanceKeys(nodesRaw, validKeys, warnings);
     if (!nodes.length) {
         warnings.push('El modelo no produjo nodos válidos; revisá el HTML o el catálogo de componentes.');
     } else if (components.length > 0 && countFigmaRenderInstances(nodes) === 0) {

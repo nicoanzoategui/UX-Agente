@@ -98,8 +98,14 @@ async function applyRenderNode(parent, node) {
       if (node.name) inst.name = String(node.name).slice(0, 120);
       parent.appendChild(inst);
     } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e);
+      figma.notify(
+        'No se pudo importar el componente (¿publicado en team library y habilitada en este archivo?). ' +
+          msg.slice(0, 120),
+        { error: true, timeout: 5000 }
+      );
       const r = figma.createRectangle();
-      r.name = 'INSTANCE ? ' + String(node.componentKey || '').slice(0, 36);
+      r.name = 'INSTANCE ? ' + String(node.componentKey || '').slice(0, 64);
       r.x = typeof node.x === 'number' ? node.x : 0;
       r.y = typeof node.y === 'number' ? node.y : 0;
       r.resize(96, 32);
